@@ -291,7 +291,7 @@ function Sector({ view, period: linked }: { view: SectorView; period?: string })
       <footer className="footer muted">
         <p>
           Source: <a href={source.url}>{source.name}</a>, table {source.table}. Latest quarter {periodLabel(source.latest_period)}
-          {source.published_at && <>; {economy() === "us" ? "release published" : "downloaded"} {source.published_at.slice(0, 10)}</>}.
+          {source.published_at && <>; {economy() === "ea" ? "downloaded" : "release published"} {source.published_at.slice(0, 10)}</>}.
         </p>
         <p>{notes.structure}</p>
         <p>{notes.other_change}</p>

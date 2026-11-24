@@ -13,8 +13,8 @@ Two sources, both in US dollars and both by pair of countries:
 
 `reporter` is always the country whose data it is, as an ISO two-letter code (or 5A, the BIS code
 for all reporting countries together, the only level at which currencies are published); `counterpart`
-keeps the source's own code. Only the countries that make up the economies in AREAS are kept
-as reporters. `value` is USD millions.
+keeps the source's own code (three letters in the IMF data, two in the BIS data). Every country in
+country_codes.csv is kept as a reporter. `value` is USD millions.
 
 The euro area is not published as one unit for every pair, so it is the sum of its member
 countries with positions between members left out. Membership is today's for every date.
@@ -22,8 +22,12 @@ countries with positions between members left out. Membership is today's for eve
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
+import functools
 import json
+import re
+import unicodedata
 import urllib.request
 from pathlib import Path
 
@@ -48,6 +52,16 @@ EURO_MEMBERS = {
     "NL": ("NLD", "Netherlands"), "PT": ("PRT", "Portugal"), "SK": ("SVK", "Slovakia"), "SI": ("SVN", "Slovenia"),
     "ES": ("ESP", "Spain"),
 }
+CODES_PATH = Path(__file__).with_name("country_codes.csv")
+
+
+@functools.lru_cache(maxsize=1)
+def load_codes() -> list[dict]:
+    """Every country both sources know: ISO two- and three-letter codes, a short name, and other names it goes by."""
+    with CODES_PATH.open(newline="", encoding="utf-8") as source:
+        return [dict(row, aliases=[a for a in row["aliases"].split(";") if a]) for row in csv.DictReader(source)]
+
+
 ISO3 = {"US": "USA", "JP": "JPN", "GB": "GBR", "CN": "CHN", "KY": "CYM", **{code: iso3 for code, (iso3, _) in EURO_MEMBERS.items()}}
 COUNTRY_NAMES = {"US": "United States", "JP": "Japan", "GB": "United Kingdom", "CN": "China", "KY": "Cayman Islands",
                  **{code: name for code, (_, name) in EURO_MEMBERS.items()}}
@@ -103,7 +117,7 @@ def ingest(raw_dir: Path, db_path: Path) -> dict:
         con.execute("CREATE OR REPLACE TABLE xb_positions (kind VARCHAR, denom VARCHAR, period VARCHAR, reporter VARCHAR, "
                     "counterpart VARCHAR, value DOUBLE)")
         con.execute("CREATE OR REPLACE TEMP TABLE xb_codes (iso2 VARCHAR, iso3 VARCHAR)")
-        con.executemany("INSERT INTO xb_codes VALUES (?, ?)", list(ISO3.items()))
+        con.executemany("INSERT INTO xb_codes VALUES (?, ?)", [(row["iso2"], row["iso3"]) for row in load_codes()])
         for kind_id, source, *_ in KINDS:
             path = str(raw_dir / _file(kind_id))
             if source == "imf":
@@ -155,7 +169,8 @@ def _kind(con: duckdb.DuckDBPyConnection, kind_id: str, source: str) -> dict:
     values: dict[tuple[str, str, str], float] = {}
     for period, reporter, counterpart, value in con.execute(
             f"SELECT period, reporter, counterpart, value FROM xb_positions WHERE kind = ? AND denom = 'all' "
-            f"AND reporter <> '5A' AND period >= ? AND counterpart IN ({marks})", [kind_id, FIRST[source], *wanted]).fetchall():
+            f"AND reporter IN ({', '.join('?' for _ in ISO3)}) AND period >= ? AND counterpart IN ({marks})",
+            [kind_id, *ISO3, FIRST[source], *wanted]).fetchall():
         values[(period, reporter, counterpart)] = value
     if not values:
         return {"periods": [], "holders": [], "matrix": {}}
@@ -234,6 +249,158 @@ def _all_banks(con: duckdb.DuckDBPyConnection) -> dict:
     return {"periods": periods, "areas": {**{area: block(members) for area, members in MEMBERS.items()}, WORLD: block(("5J",))}}
 
 
+# What each side of a country's table says. {c} is the country.
+SIDES = {
+    "equity": ("Equity and fund shares held by residents of {c}, by where issued",
+               "Equity and fund shares issued in {c}, by where the holder lives"),
+    "debt": ("Debt securities held by residents of {c}, by where issued",
+             "Debt securities issued in {c}, by where the holder lives"),
+    "bank_claims": ("Claims of banks located in {c}, by where the borrower lives",
+                    "Claims on residents of {c} of banks located abroad, by where the bank is"),
+    "bank_liabilities": ("What banks located in {c} owe abroad, by where the creditor lives",
+                         "What banks abroad owe to residents of {c}, by where the bank is"),
+}
+COUNTRY_NOTES = {
+    "reading": "The left table is what {c} itself reports; the right is what other countries report about {c}. Securities "
+               "are placed by where the issuer is resident, bank positions by where the bank's office is.",
+    "mirror": "The right-hand securities tables add up only the countries that take part in the IMF survey (about 80), "
+              "and leave out central banks' reserves, so they understate what the world "
+              "holds. Fewer countries report in June than in December; a date is left out of the chart when clearly fewer "
+              "report. The bank totals are for all banks reporting to the BIS; the countries listed are those that publish "
+              "their positions by country.",
+    "custody": "Holdings booked through a financial centre appear as that centre's: a fund in Luxembourg or the Cayman "
+               "Islands counts as a holder there, whoever owns the fund.",
+}
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()).strip("-")
+
+
+def find_country(name: str) -> dict | None:
+    """The code-table row for a country given by name, another name it goes by, or either ISO code."""
+    return _by_name().get(_slug(name))
+
+
+@functools.lru_cache(maxsize=1)
+def _by_name() -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for row in load_codes():
+        for key in (row["iso3"].lower(), *map(_slug, row["aliases"]), _slug(row["imf_name"]), _slug(row["name"])):
+            out.setdefault(key, row)
+    # Two-letter codes last, so that a code never shadows a name.
+    for row in load_codes():
+        out.setdefault(row["iso2"].lower(), row)
+    return out
+
+
+def _steady(sums: list[dict[str, float]]) -> list[float | None]:
+    """Per period, the sum over reporters; None where the reporters present stand for under 90% of the usual total."""
+    out: list[float | None] = []
+    latest: dict[str, float] = {}
+    for found in sums:
+        latest.update(found)
+        weight = sum(abs(latest[key]) for key in found) / (sum(abs(v) for v in latest.values()) or 1.0)
+        out.append(sum(found.values()) if found and weight >= 0.9 else None)
+    return out
+
+
+def country(con: duckdb.DuckDBPyConnection, iso2: str, top: int = 10) -> dict | None:
+    """One country's cross-border positions: its own report by counterpart, and what others report about it."""
+    codes = load_codes()
+    row = next((r for r in codes if r["iso2"] == iso2), None)
+    if row is None or not available(con):
+        return None
+    names = {r["iso2"]: r["name"] for r in codes}
+    from_iso3 = {r["iso3"]: r["iso2"] for r in codes}
+    kinds = []
+    for kind_id, source, _, kind_name, *_ in KINDS:
+        own_code = row["iso3"] if source == "imf" else iso2
+        to_iso2 = (lambda c: from_iso3.get(c)) if source == "imf" else (lambda c: c if c in names else None)
+        own_rows = con.execute(
+            "SELECT period, counterpart, value FROM xb_positions WHERE kind = ? AND denom = 'all' AND reporter = ? AND period >= ?",
+            [kind_id, iso2, FIRST[source]]).fetchall()
+        mirror_rows = con.execute(
+            "SELECT period, reporter, value FROM xb_positions WHERE kind = ? AND denom = 'all' AND counterpart = ? AND reporter <> ? "
+            "AND reporter <> '5A' AND period >= ?", [kind_id, own_code, iso2, FIRST[source]]).fetchall()
+        all_banks = {(denom, period): value for denom, period, value in con.execute(
+            "SELECT denom, period, value FROM xb_positions WHERE kind = ? AND reporter = '5A' AND counterpart = ?", [kind_id, iso2]).fetchall()}
+        present = {r[0] for r in own_rows} | {r[0] for r in mirror_rows} | {period for _, period in all_banks}
+        if not present:
+            continue
+        periods = _quarters(min(present), max(present))
+        index = {period: i for i, period in enumerate(periods)}
+
+        def ranked(values: dict[str, float], total: float | None) -> tuple[list[dict], float | None]:
+            listed = sorted(((c, v) for c, v in values.items() if v > 0), key=lambda item: -item[1])[:top]
+            rest = None if total is None or not listed else total - sum(v for _, v in listed)
+            return ([{"iso2": c, "name": names[c], "value": v, "share_pct": None if not total else round(100 * v / total, 1)}
+                     for c, v in listed], rest)
+
+        own = None
+        own_total: list[float | None] = [None] * len(periods)
+        for period, counterpart, value in own_rows:
+            if counterpart == WORLD_CODE[source]:
+                own_total[index[period]] = value
+        if any(v is not None for v in own_total):
+            at = max(i for i, v in enumerate(own_total) if v is not None)
+            by = {to_iso2(c): v for p, c, v in own_rows if p == periods[at] and to_iso2(c)}
+            rows, rest = ranked(by, own_total[at])
+            own = {"label": SIDES[kind_id][0].format(c=row["name"]), "period": periods[at], "total": own_total[at], "series": own_total,
+                   "top": rows, "everywhere_else": rest, "counterparts": sum(1 for v in by.values() if v > 0)}
+
+        mirror = None
+        found: list[dict[str, float]] = [{} for _ in periods]
+        for period, reporter, value in mirror_rows:
+            found[index[period]][reporter] = value
+        summed = _steady(found)
+        if source == "bis":
+            series = [all_banks.get(("all", period)) for period in periods]
+        else:
+            series = summed
+        if any(v is not None for v in series):
+            at = max(i for i, v in enumerate(series) if v is not None)
+            rows, rest = ranked(found[at], series[at])
+            mirror = {"label": SIDES[kind_id][1].format(c=row["name"]), "period": periods[at], "total": series[at], "series": series,
+                      "top": rows, "everywhere_else": rest, "reporters": len(found[at]),
+                      **({"in_us_dollars": all_banks.get(("usd", periods[at])), "in_euro": all_banks.get(("eur", periods[at]))}
+                         if source == "bis" else {})}
+        if own is None and mirror is None:
+            continue
+        kinds.append({"id": kind_id, "name": kind_name, "source": "IMF" if source == "imf" else "BIS",
+                      "frequency": "half-yearly" if source == "imf" else "quarterly", "periods": periods, "own": own, "mirror": mirror})
+    if not kinds:
+        return None
+    return {
+        "iso2": iso2, "name": row["name"], "unit": "USD millions", "kinds": kinds,
+        "source": {"name": SOURCE_NAME, "imf": "https://data.imf.org/en/datasets/IMF.STA:PIP", "bis": "https://data.bis.org/topics/LBS"},
+        "notes": {key: text.format(c=row["name"]) for key, text in COUNTRY_NOTES.items()},
+    }
+
+
+def pair(con: duckdb.DuckDBPyConnection, a: tuple[str, ...], b: tuple[str, ...]) -> list[dict]:
+    """Positions between two sets of countries in both directions, per kind: year ends and the latest date."""
+    iso3 = {r["iso2"]: r["iso3"] for r in load_codes()}
+    out = []
+    for kind_id, source, _, kind_name, *_ in KINDS:
+        directions = []
+        for holders, issuers in ((a, b), (b, a)):
+            wanted = [iso3[c] if source == "imf" else c for c in issuers]
+            rows = con.execute(
+                f"SELECT period, reporter, sum(value) FROM xb_positions WHERE kind = ? AND denom = 'all' AND period >= ? "
+                f"AND reporter IN ({', '.join('?' for _ in holders)}) AND counterpart IN ({', '.join('?' for _ in wanted)}) "
+                "GROUP BY period, reporter", [kind_id, FIRST[source], *holders, *wanted]).fetchall()
+            periods = sorted({r[0] for r in rows})
+            found = [{reporter: value for period, reporter, value in rows if period == p} for p in periods]
+            series = dict(zip(periods, _steady(found)))
+            shown = [p for p in periods if series[p] is not None]
+            directions.append({"holders": holders, "issuers": issuers,
+                               "history": [{"period": p, "value": series[p]} for p in shown if p.endswith("Q4") or p == shown[-1]][-13:],
+                               "reporting": sorted(found[periods.index(shown[-1])]) if shown else []})
+        out.append({"id": kind_id, "name": kind_name, "source": "IMF" if source == "imf" else "BIS", "directions": directions})
+    return out
+
+
 def compute(con: duckdb.DuckDBPyConnection) -> dict:
     kinds = []
     for kind_id, source, _, name, row_label, column_label, sentence in KINDS:
@@ -244,7 +411,7 @@ def compute(con: duckdb.DuckDBPyConnection) -> dict:
                       "reporting": {holder: names for holder, names in reporting.items() if names}, **table})
     all_banks = _all_banks(con)
     return {
-        "areas": [{"id": area_id, "name": name, "has_pages": area_id in ("us", "ea")} for area_id, name, _ in AREAS],
+        "areas": [{"id": area_id, "name": name, "has_pages": area_id in ("us", "ea", "jp")} for area_id, name, _ in AREAS],
         "columns": [*MEMBERS, OTHER, WORLD],
         "column_names": {**AREA_NAMES, OTHER: "Everywhere else", WORLD: "All economies"},
         "kinds": kinds,
@@ -268,6 +435,12 @@ def compute(con: duckdb.DuckDBPyConnection) -> dict:
             "not_included": "Direct investment, loans by non-banks, derivatives and central banks' reserves (which the "
                             "portfolio survey reports only in total) are not in these tables, so they are not the whole of "
                             "what one economy owes another.",
+            "against_us_data": "Compared with the US Treasury's own country data for the same date (end-2025): US holdings "
+                               "abroad agree, and so do Japanese and euro-area holdings of US equities. Their holdings of "
+                               "US debt are lower here ($1.2T against $1.8T for Japan, $3.1T against $4.4T for the euro "
+                               "area), mainly because central banks' reserves are not in the portfolio survey. The United "
+                               "Kingdom is lower here and the Cayman Islands higher, because the Treasury data counts "
+                               "securities where they are held in custody and this counts them by the owner's residence.",
             "dollars": "Everything is converted to US dollars by the source, whatever currency it is denominated in.",
             "all_banks": "Banks in all countries that report to the BIS, taken together, and their cross-border positions "
                          "with residents of each economy. This is the only level at which the BIS publishes the currency. "

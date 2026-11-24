@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 
-from fwm import agent, compare, context, countries, eacontext, economies, euroarea, euweekly, fedweekly, instruments, links, tic, overview, sectors, systemmap
+from fwm import agent, compare, context, countries, eacontext, economies, jpcontext, euroarea, euweekly, fedweekly, instruments, links, tic, overview, sectors, systemmap
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.environ.get("FWM_DB", ROOT / "data" / "fwm.duckdb"))
@@ -73,6 +73,10 @@ def system_map(economy: str = economies.DEFAULT) -> dict:
 def context_view(economy: str = economies.DEFAULT) -> dict:
     con = connect()
     try:
+        if economy == "jp":
+            if not jpcontext.available(con):
+                raise HTTPException(503, "Japan's rates and GDP not loaded. Run `uv run fwm ingest --only boj`.")
+            return jpcontext.view(con)
         if economy == "ea":
             if not eacontext.available(con):
                 raise HTTPException(503, "Euro-area rates and GDP not loaded. Run `uv run fwm ingest --only ecb`.")
@@ -141,6 +145,8 @@ def chat(request: ChatRequest) -> StreamingResponse:
 @economy_api.get("/weekly/central-bank")
 def central_bank_weekly(economy: str = economies.DEFAULT) -> dict:
     """The economy's central bank balance sheet, weekly: the Federal Reserve or the Eurosystem."""
+    if economy == "jp":
+        raise HTTPException(404, "No weekly central bank data for Japan.")
     con = connect()
     try:
         view = (euweekly if economy == "ea" else fedweekly).view(con)
@@ -269,6 +275,18 @@ def country_list() -> list[dict]:
         return countries.listing(con)
     finally:
         con.close()
+
+
+@app.get("/api/countries/{country_id}/links")
+def country_links(country_id: str) -> dict:
+    con = connect()
+    try:
+        view = countries.cross_border(con, country_id)
+    finally:
+        con.close()
+    if view is None:
+        raise HTTPException(404, f"No cross-border positions for {country_id!r}")
+    return view
 
 
 @app.get("/api/countries/{country_id}")

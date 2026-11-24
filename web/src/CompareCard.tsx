@@ -6,7 +6,7 @@ import { money, periodLabel } from "./util";
 type Unit = "pct_of_gdp" | "usd";
 
 // Colour follows the economy, here and anywhere else two economies share a chart.
-const ECONOMY_COLOR: Record<string, string> = { us: "var(--s1)", ea: "var(--s2)" };
+const ECONOMY_COLOR: Record<string, string> = { us: "var(--s1)", ea: "var(--s2)", jp: "var(--s3)" };
 
 /** The economies side by side: as a share of each one's GDP, or in dollars. */
 export function CompareCard() {
@@ -63,7 +63,7 @@ export function CompareCard() {
   return (
     <section className="card">
       <div className="card-head">
-        <h2>United States and euro area side by side, {periodLabel(data.periods[last])}</h2>
+        <h2>Economies side by side, {periodLabel(data.periods[last])}</h2>
         <div className="segmented" role="group" aria-label="Unit for comparing economies">
           <button aria-pressed={unit === "pct_of_gdp"} onClick={() => setUnit("pct_of_gdp")}>
             % of own GDP
@@ -75,7 +75,8 @@ export function CompareCard() {
       </div>
       <p className="muted">
         GDP over the past four quarters: {data.economies.map((e) => `${e.name} ${money(data.gdp[e.id].usd[last] ?? 0, "$")}`).join(", ")}
-        {data.usd_per_eur[last] !== null && ` (at $${data.usd_per_eur[last]!.toFixed(2)} per euro)`}.
+        {data.usd_per_eur[last] !== null && ` (at $${data.usd_per_eur[last]!.toFixed(2)} per euro`}
+        {data.yen_per_usd?.[last] ? `, ¥${data.yen_per_usd[last]!.toFixed(0)} per dollar)` : data.usd_per_eur[last] !== null ? ")" : ""}.
       </p>
       <div className="tables">
         {section("Outstanding, by instrument", data.instruments)}

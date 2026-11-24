@@ -124,7 +124,7 @@ def test_tool_answers_overall_one_economy_and_one_pair(con, view):
     assert debt[0]["history"][-1]["period"] == "2025:Q4" and all(point["amount"] is not None for point in debt[0]["history"])
     china = tools.run(con, "get_cross_border_links", {"economy": "cn", "other": "us"})
     assert china["by_kind"][2]["directions"][0]["amount"] is None and "does not publish" in china["by_kind"][2]["directions"][0]["why_missing"]
-    for bad in ({"economy": "Germany"}, {"economy": "us", "other": "us"}, {"other": "us"}):
+    for bad in ({"economy": "Atlantis"}, {"economy": "us", "other": "us"}, {"other": "us"}):
         with pytest.raises(tools.ToolError):
             tools.get_cross_border_links(con, **bad)
 
@@ -136,3 +136,104 @@ def test_api_serves_the_view(view):
 
     body = TestClient(api.app).get("/api/links").json()
     assert [area["id"] for area in body["areas"]] == ["us", "ea", "jp", "uk", "cn", "ky"] and body["kinds"][0]["periods"] == view["kinds"][0]["periods"]
+
+
+def test_agrees_with_us_treasury_country_data_where_the_two_measure_the_same_thing(con, view):
+    from fwm import countries
+
+    japan = countries.view(con, "japan")
+    if japan is None or "2025-12" not in japan["periods"]:
+        pytest.skip("no TIC country data for end-2025")
+    i = japan["periods"].index("2025-12")
+    line = lambda side, line_id: next(l for l in japan[side]["lines"] if l["id"] == line_id)["total"][i]
+    at = kind(view, "equity")["periods"].index("2025:Q4")
+    equity = kind(view, "equity")["matrix"]
+    assert equity["us"]["jp"]["level"][at] == pytest.approx(line("held_by_us", "us_foreign_equities"), rel=0.02)
+    assert equity["jp"]["us"]["level"][at] == pytest.approx(line("holds_us", "equities"), rel=0.08)
+    # Debt is lower in the portfolio survey: it leaves out the central bank's reserves.
+    tic_debt = sum(line("holds_us", line_id) for line_id in ("treasuries", "agency", "corporate"))
+    assert 0.5 * tic_debt < kind(view, "debt")["matrix"]["jp"]["us"]["level"][at] < tic_debt
+
+
+# Every country as a reporter
+
+def test_country_codes_are_unique_and_cover_the_countries_with_pages(con):
+    from fwm import countries
+
+    codes = links.load_codes()
+    assert len({row["iso2"] for row in codes}) == len(codes) == len({row["iso3"] for row in codes})
+    assert links.find_country("Korea, South")["iso2"] == "KR" and links.find_country("türkiye")["iso2"] == "TR"
+    assert links.find_country("Germany")["iso2"] == links.find_country("DEU")["iso2"] == "DE"
+    entities = [e for e in countries._entities(con).values() if e["kind"] == "country"]
+    assert all(countries.code_of(e) for e in entities)
+    assigned = [countries.code_of(e) for e in entities]
+    assert len(set(assigned)) == len(assigned)
+
+
+def test_country_view_lists_the_largest_counterparts_within_the_total(con):
+    view = links.country(con, "DE")
+    assert [k["id"] for k in view["kinds"]] == list(links.KIND_IDS)
+    for k in view["kinds"]:
+        for side in (k["own"], k["mirror"]):
+            assert len(side["top"]) == 10 and side["top"] == sorted(side["top"], key=lambda r: -r["value"])
+            assert side["total"] == pytest.approx(sum(r["value"] for r in side["top"]) + side["everywhere_else"])
+            assert side["everywhere_else"] >= 0 and len(side["series"]) == len(k["periods"])
+            assert all(r["iso2"] != "DE" for r in side["top"])
+    debt = view["kinds"][1]
+    assert debt["own"]["total"] == con.execute(
+        "SELECT value FROM xb_positions WHERE kind = 'debt' AND reporter = 'DE' AND counterpart = 'G001' AND period = ?",
+        [debt["own"]["period"]]).fetchone()[0]
+    # What others report about Germany is the sum of their rows, and the bank total is the BIS's own.
+    assert debt["mirror"]["total"] == pytest.approx(con.execute(
+        "SELECT sum(value) FROM xb_positions WHERE kind = 'debt' AND counterpart = 'DEU' AND reporter <> 'DE' AND period = ?",
+        [debt["mirror"]["period"]]).fetchone()[0])
+    claims = view["kinds"][2]["mirror"]
+    assert claims["total"] == con.execute(
+        "SELECT value FROM xb_positions WHERE kind = 'bank_claims' AND reporter = '5A' AND denom = 'all' AND counterpart = 'DE' "
+        "AND period = ?", [claims["period"]]).fetchone()[0]
+    assert 0 < claims["in_us_dollars"] < claims["total"]
+
+
+def test_country_without_detail_shows_totals_only_and_unknown_country_is_none(con):
+    china = links.country(con, "CN")
+    claims = next(k for k in china["kinds"] if k["id"] == "bank_claims")
+    assert claims["own"]["top"] == [] and claims["own"]["everywhere_else"] is None and claims["own"]["total"] > 1e6
+    assert claims["mirror"]["top"][0]["name"].startswith("Hong Kong")
+    assert links.country(con, "ZZ") is None
+
+
+def test_pair_of_countries_matches_the_source_and_the_area_tables(con, view):
+    pair = {k["id"]: k for k in links.pair(con, ("DE",), ("JP",))}
+    latest = pair["debt"]["directions"][0]["history"][-1]
+    assert latest["value"] == con.execute(
+        "SELECT value FROM xb_positions WHERE kind = 'debt' AND reporter = 'DE' AND counterpart = 'JPN' AND period = ?",
+        [latest["period"]]).fetchone()[0]
+    assert pair["debt"]["directions"][1]["holders"] == ("JP",)
+    us_jp = {k["id"]: k for k in links.pair(con, ("US",), ("JP",))}
+    assert us_jp["equity"]["directions"][0]["history"][-1]["value"] == pytest.approx(kind(view, "equity")["matrix"]["us"]["jp"]["level"][-1])
+
+
+def test_tool_takes_any_country_alone_or_in_a_pair(con):
+    one = tools.run(con, "get_cross_border_links", {"economy": "Switzerland"})
+    claims = next(k for k in one["by_kind"] if k["what"] == "Bank claims")["reported_by_this_country"]
+    assert one["country"] == "Switzerland" and one["link"] == "#/country/switzerland" and "United States" in claims["largest"]
+    pair = tools.run(con, "get_cross_border_links", {"economy": "Germany", "other": "jp"})
+    assert pair["pair"] == ["Germany", "Japan"] and pair["by_kind"][1]["directions"][0]["amount"] > 5
+    with_area = tools.run(con, "get_cross_border_links", {"economy": "Korea", "other": "ea"})
+    assert with_area["by_kind"][1]["directions"][1]["members_reporting"] >= 15
+    for arguments in ({"economy": "Germany", "other": "ea"}, {"economy": "Atlantis"}):
+        with pytest.raises(tools.ToolError):
+            tools.run(con, "get_cross_border_links", arguments)
+
+
+def test_api_serves_a_countrys_links():
+    from fastapi.testclient import TestClient
+
+    from fwm.api import app
+
+    client = TestClient(app)
+    assert client.get("/api/countries/germany").json()["has_links"] is True
+    body = client.get("/api/countries/germany/links").json()
+    assert body["name"] == "Germany" and body["kinds"][0]["own"]["top"][0]["page"]
+    assert client.get("/api/countries/euro-area").json()["has_links"] is False
+    assert client.get("/api/countries/euro-area/links").status_code == 404

@@ -59,16 +59,26 @@ say this in a sentence. Cite these figures as TIC.
 - The other direction, from the same reports: foreign government bonds, corporate bonds and equities held by US \
 residents, by country of the issuer. With get_country this gives one country's securities links with the US both \
 ways. That is the country seen from the US. It is not that country's balance sheet: there is nothing here about what \
-Japan, China or anyone else holds at home or in third countries, so a question such as "what did Japan buy instead?" \
-is a gap (coverage).
+China or anyone else holds at home or in third countries. (Japan and the euro area do have their own accounts, \
+described next.)
 - The euro area's financial accounts, from the ECB's quarterly sector accounts: {euro}. The same kind of data as \
 Z.1 for a second economy: each sector's financial assets and liabilities by instrument, and who holds and who owes \
 each instrument, with amounts, transactions and valuation changes. Reach it by passing economy "ea" to list_sectors, \
 list_instruments, get_sector, get_instrument, get_system_map, latest_moves, get_rates_and_gdp (ECB deposit rate, \
 euro area government yields, euro area GDP, and the dollar-euro exchange rate) and get_fed_announcements (which then \
 returns ECB announcements); its series ids work in get_history. \
+- Japan's financial accounts, from the Bank of Japan's flow of funds: {japan}. The same kind of data again for a \
+third economy, in yen: pass economy "jp" to list_sectors, list_instruments, get_sector, get_instrument, \
+get_system_map and latest_moves; its series ids (FOF_...) work in get_history. The Bank of Japan is sector S110 and \
+government bonds are instrument I311, so who holds Japanese government debt is answerable. Give yen amounts in yen \
+(large ones in trillions) and do not convert them yourself; compare_economies includes Japan. \
+get_rates_and_gdp with economy "jp" gives the Bank of Japan's policy rate, government bond yields, GDP and yen per \
+dollar, and get_fed_announcements with economy "jp" gives Bank of Japan announcements. Not loaded for Japan: a \
+weekly central bank balance sheet, and holdings by counterpart sector. \
 Between economies, get_cross_border_links gives who holds whose securities and what banks in one owe and are owed \
-by the other, for the United States, euro area, Japan, United Kingdom, China and Cayman Islands, in US dollars. Use \
+by the other, for the United States, euro area, Japan, United Kingdom, China and Cayman Islands, in US dollars. \
+It also takes any single country by name (Germany, Switzerland, Korea), alone or as one of a pair; its debt \
+securities are all issuers together, so say so when asked about government bonds alone. Use \
 it for any question about one economy's exposure to another, about euro-area or Japanese holdings by country, or \
 about dollars held or lent outside the United States. It places a holding where the issuer or the bank's office is, \
 so say when a figure runs through a financial centre, and say that it leaves out direct investment and central \
@@ -79,7 +89,7 @@ The Eurosystem's weekly balance sheet ({euro_weekly}) comes from get_fed_weekly 
 with economy "ea"; a question about the ECB's balance sheet now or recently is answered from it, with its date. \
 Holdings by country are for the United \
 States only, so a euro-area question that needs one of those is a gap (coverage). Three things differ from the US \
-accounts. Amounts are in euro: give them in euro and do not convert them yourself. To set the two economies side \
+accounts. Amounts are in euro: give them in euro and do not convert them yourself. To set economies side \
 by side use compare_economies, which converts at the quarter's exchange rate and gives each amount as a share of its \
 own economy's GDP; prefer the share of GDP for comparing size, and say that the dollar figure depends on the exchange \
 rate. Outside that tool, a euro figure beside a dollar one is in a different currency and not directly comparable. Sectors are coarser: banks, \
@@ -173,7 +183,14 @@ def system_prompt(con: duckdb.DuckDBPyConnection) -> str:
     if euweekly.available(con):
         first, last = con.execute("SELECT min(date), max(date) FROM eurosystem_weekly WHERE series_id = ?", [euweekly.TOTAL]).fetchone()
         euro_weekly = f"every Friday, {first} to {last}"
-    return SYSTEM.format(first=periods[0], latest=periods[-1], weekly=weekly, foreign=foreign, euro=euro, euro_weekly=euro_weekly)
+    from fwm import japan as japan_accounts
+
+    japan = "not loaded in this installation"
+    if japan_accounts.available(con):
+        quarters = japan_accounts.periods(con)
+        japan = f"quarterly, {quarters[0]} to {quarters[-1]}"
+    return SYSTEM.format(first=periods[0], latest=periods[-1], weekly=weekly, foreign=foreign, euro=euro, euro_weekly=euro_weekly,
+                         japan=japan)
 
 
 def label(name: str, arguments: dict, result: dict | None) -> str:

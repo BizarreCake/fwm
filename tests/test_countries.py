@@ -88,7 +88,7 @@ def test_country_tool_matches_the_country_page(con):
 def test_api_is_scoped_by_economy_and_keeps_the_old_paths(con):
     client = TestClient(api.app)
     listed = client.get("/api/economies").json()
-    assert [e["id"] for e in listed if e["loaded"]] == ["us", "ea"] and economies.DEFAULT == "us"
+    assert [e["id"] for e in listed if e["loaded"]] == ["us", "ea", "jp"] and economies.DEFAULT == "us"
     scoped = client.get("/api/economy/us/sectors")
     assert scoped.status_code == 200 and scoped.json() == client.get("/api/sectors").json()
     assert client.get("/api/economy/us/foreign/equities").json()["id"] == "equities"

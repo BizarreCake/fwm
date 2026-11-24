@@ -42,7 +42,7 @@ export function LinksPage({ pair }: { pair?: string }) {
           <h1>Links between economies</h1>
           <p className="muted">
             Who holds whose securities, and what banks in one economy owe and are owed by another. In US dollars.{" "}
-            <a href="#/">US overview</a> · <a href="#/ea">Euro area overview</a>
+            <a href="#/">US overview</a> · <a href="#/ea">Euro area overview</a> · <a href="#/jp">Japan overview</a>
           </p>
         </div>
       </header>
@@ -98,7 +98,7 @@ export function LinksPage({ pair }: { pair?: string }) {
 
       <p className="muted small">
         Sources: <a href={data.source.imf}>IMF, Portfolio Investment Positions by Counterpart Economy</a> (end of June and December) and{" "}
-        <a href={data.source.bis}>BIS locational banking statistics</a> (quarterly). {data.notes.euro_area} {data.notes.dollars}
+        <a href={data.source.bis}>BIS locational banking statistics</a> (quarterly). {data.notes.euro_area} {data.notes.dollars} {data.notes.against_us_data}
       </p>
     </main>
   );

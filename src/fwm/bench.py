@@ -16,7 +16,7 @@ from typing import Any
 
 import duckdb
 
-from fwm import agent, euroarea, tools
+from fwm import agent, economies, euroarea, tools
 
 
 @dataclass
@@ -51,7 +51,7 @@ class Transcript:
 
 _SCALE = {"trillion": 1000.0, "tn": 1000.0, "t": 1000.0, "billion": 1.0, "bn": 1.0, "b": 1.0,
           "million": 0.001, "mn": 0.001, "m": 0.001}
-_MONEY = re.compile(r"(?:\$|€|EUR\s)\s?([\d,]+(?:\.\d+)?)\s?(trillion|billion|million|tn|bn|mn|t|b|m)\b", re.IGNORECASE)
+_MONEY = re.compile(r"(?:\$|€|¥|EUR\s|JPY\s)\s?([\d,]+(?:\.\d+)?)\s?(trillion|billion|million|tn|bn|mn|t|b|m)\b", re.IGNORECASE)
 _PERCENT = re.compile(r"([\d,]+(?:\.\d+)?)\s?(?:%|percent|percentage points?)", re.IGNORECASE)
 
 
@@ -135,9 +135,9 @@ def used(name: str, **arguments: Any) -> Check:
     return check
 
 
-_SERIES = re.compile(r"\b[A-Z]{2}\d{9}\.Q\b|\bQSA(?:\.[A-Z0-9_]+){18}")
+_SERIES = re.compile(r"\b[A-Z]{2}\d{9}\.Q\b|\bQSA(?:\.[A-Z0-9_]+){18}|\bFOF_FFA[SFR]\d{3}[AL]\d{3}\b")
 _LINK = re.compile(r"\]\((#/[^)\s]*)\)")
-_ROUTE = re.compile(r"^#/(?:$|country/[\w-]+(?:\?[\w=:&%.-]*)?$|us/(?:weekly/fed|foreign/(?:treasuries|agency|corporate|equities))(?:\?[\w=:&%.-]*)?$|ea$|links(?:\?pair=(?:us|ea|jp|uk|cn|ky)-(?:us|ea|jp|uk|cn|ky))?$|ea/weekly/eurosystem(?:\?[\w=:&%.-]*)?$|(us|ea)/(instrument|sector)/(\w+)(?:\?[\w=:&%.-]*)?$)")
+_ROUTE = re.compile(r"^#/(?:$|country/[\w-]+(?:\?[\w=:&%.-]*)?$|us/(?:weekly/fed|foreign/(?:treasuries|agency|corporate|equities))(?:\?[\w=:&%.-]*)?$|ea$|jp$|links(?:\?pair=(?:us|ea|jp|uk|cn|ky)-(?:us|ea|jp|uk|cn|ky))?$|ea/weekly/eurosystem(?:\?[\w=:&%.-]*)?$|(us|ea|jp)/(instrument|sector)/(\w+)(?:\?[\w=:&%.-]*)?$)")
 _WEEKLY_SERIES = re.compile(r"H\.4\.1 (RES[A-Z0-9]+)")
 
 
@@ -152,7 +152,7 @@ def grounded(transcript: Transcript, con: duckdb.DuckDBPyConnection) -> str | No
     if invented:
         return f"cites series that no tool returned: {invented}"
     valid = {}
-    for economy in ("us", "ea"):
+    for economy in economies.ECONOMIES:
         try:
             valid[economy, "instrument"] = {row["id"] for row in tools.list_instruments(con, economy)["instruments"]}
             valid[economy, "sector"] = {row["id"] for row in tools.list_sectors(con, economy)["sectors"]}
@@ -184,6 +184,17 @@ def _ea_government_debt(con) -> dict:
     side = tools.get_instrument(con, "F3", compare_to="2019:Q4", economy="ea")["issuers"]
     group = next(g for g in side["groups"] if g["group_id"] == "gov_business")
     return next(s for s in group["sectors"] if s["sector_id"] == "S13")
+
+
+def _country_pair(con: duckdb.DuckDBPyConnection, kind_id: str, holder: str, issuer: str) -> float:
+    from fwm import links
+    kind = next(kind for kind in links.pair(con, (holder,), (issuer,)) if kind["id"] == kind_id)
+    return kind["directions"][0]["history"][-1]["value"] / 1000
+
+
+def _jp(con: duckdb.DuckDBPyConnection, sector_id: str, side: str, code: str) -> float:
+    from fwm import japan
+    return japan.Accounts(con).position(sector_id, side, code)["level"][-1] / 1000
 
 
 def _link(con: duckdb.DuckDBPyConnection, kind_id: str, holder: str, issuer: str) -> float:
@@ -324,6 +335,20 @@ QUESTIONS: list[Question] = [
         used("get_who_holds_whose"), in_euro, no_gap]),
     Question("us-who-holds-whose", "How much of US corporate bonds issued by banks is held by pension funds?", [
         gap("counterparty")], "partial"),
+    Question("jp-jgb-holders", "Who holds Japanese government bonds, and how much does the Bank of Japan have?", [
+        used("get_instrument", instrument_id="I311", economy="jp"), mentions("Bank of Japan"),
+        amount("Bank of Japan holdings of government bonds", lambda con: _jp(con, "S110", "assets", "I311")),
+        mentions("¥", "yen", "JPY"), no_gap]),
+    Question("jp-household-assets", "What do Japanese households keep their money in?", [
+        used("get_sector", sector_id="S430", economy="jp"), mentions("deposit"),
+        amount("household currency and deposits", lambda con: _jp(con, "S430", "assets", "I100")), no_gap]),
+    Question("jp-boj-since-2012", "How has the Bank of Japan's balance sheet changed since 2012?", [
+        mentions("government bond", "JGB"), amount("Bank of Japan total assets", lambda con: _jp(con, "S110", "assets", "F")), no_gap]),
+    Question("jp-rates", "What is the Bank of Japan's policy rate, and when did it last change?", [
+        used("get_rates_and_gdp", economy="jp"), mentions("1.25"), mentions("2026"), no_gap]),
+    Question("jp-debt-to-gdp", "How big is Japanese government debt next to the economy, compared with the US and euro area?", [
+        mentions("gdp"), mentions("Japan"), no_gap]),
+    Question("jp-boj-weekly", "What is on the Bank of Japan's balance sheet this week?", [gap("frequency", "coverage")], "partial"),
     Question("links-us-ea", "How much do euro area investors hold of US securities, and how much do Americans hold of euro area ones?", [
         used("get_cross_border_links"),
         amount("euro area holdings of US equity", lambda con: _link(con, "equity", "ea", "us")),
@@ -332,7 +357,11 @@ QUESTIONS: list[Question] = [
         used("get_cross_border_links"), amount("claims of banks in Japan on US residents", lambda con: _link(con, "bank_claims", "jp", "us")), no_gap]),
     Question("links-offshore-dollars", "How many dollars do banks lend to borrowers outside the United States?", [
         used("get_cross_border_links"), mentions("trillion", "T"), no_gap]),
-    Question("links-germany-japan", "How much do German investors hold of Japanese government bonds?", [
+    Question("links-germany-japan", "How much do German investors hold of Japanese bonds?", [
+        used("get_cross_border_links"), amount("German holdings of Japanese debt securities", lambda con: _country_pair(con, "debt", "DE", "JP")), no_gap]),
+    Question("links-switzerland", "Which countries do Swiss banks lend to most?", [
+        used("get_cross_border_links"), mentions("United States", "US"), mentions("United Kingdom", "UK"), no_gap]),
+    Question("links-germany-sectors", "Which German sectors hold US Treasuries: banks, insurers or households?", [
         gap("entity", "coverage", "instrument")], "partial"),
     Question("ea-us-size", "How big is the euro area's bond market next to the US one?", [
         used("compare_economies"), mentions("gdp"), mentions("exchange rate", "per euro", "converted"), no_gap]),

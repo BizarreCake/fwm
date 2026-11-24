@@ -200,7 +200,7 @@ function Instrument({ view, period: linked }: { view: InstrumentView; period?: s
       <footer className="footer muted">
         <p>
           Source: <a href={source.url}>{source.name}</a>, table {source.table}. Latest quarter {periodLabel(source.latest_period)}
-          {source.published_at && <>; {economy() === "us" ? "release published" : "downloaded"} {source.published_at.slice(0, 10)}</>}. Figures are observed sector aggregates as
+          {source.published_at && <>; {economy() === "ea" ? "downloaded" : "release published"} {source.published_at.slice(0, 10)}</>}. Figures are observed sector aggregates as
           published.
         </p>
         <p>{notes.sides}</p>

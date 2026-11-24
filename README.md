@@ -11,8 +11,10 @@ Built so far, mostly from the Federal Reserve's Z.1 financial accounts:
 - **Foreign holders by country**: the "rest of the world" split by country each month (Treasury TIC) for Treasuries, agency bonds, corporate bonds and equities, with official against private holders.
 - **Countries**: each country as a counterparty of the US: the US securities held there, and its securities held by US residents. Not the country's own accounts.
 - **Euro area**: a second full economy, in euro, from ECB data: the same overview, sector and instrument pages as the US from 1999, plus who holds whose paper (which the US accounts cannot show), ECB rates and announcements, and the Eurosystem's balance sheet every week. Switch economies at the top of the overview.
+- **Japan**: a third full economy, in yen, from the Bank of Japan's flow of funds since 1997, with the Bank of Japan as its own sector, who holds government bonds, rates, GDP and announcements.
+- **Any country and the rest of the world**: each country page shows its securities and bank positions with every other country, from its own report and from what others report about it.
 - **Links between economies**: who holds whose securities and what banks in one economy owe and are owed by another, for the US, euro area, Japan, UK, China and the Cayman Islands, with dollars lent outside the US (`#/links`).
-- **Side by side**: the two economies compared by instrument and by holder, as a share of each one's GDP or in dollars.
+- **Side by side**: the three economies compared by instrument and by holder, as a share of each one's GDP or in dollars.
 - **Assistant**: a chat panel that answers questions from the same data, links to the pages behind its numbers, and says when the data cannot answer.
 - **Context on every chart**: interest rates (Federal Reserve H.15), markers for Federal Reserve announcements, and amounts as a share of GDP.
 
@@ -26,6 +28,7 @@ uv run fwm ingest --only rates        # refresh just the daily interest rates (s
 uv run fwm ingest --only fed-weekly   # refresh just the weekly Fed balance sheet (seconds)
 uv run fwm ingest --only tic          # refresh just foreign holdings by country (seconds)
 uv run fwm ingest --only ecb          # refresh everything for the euro area: accounts, rates, GDP, weekly Eurosystem (under a minute)
+uv run fwm ingest --only boj          # refresh Japan: accounts, rates, GDP (under a minute)
 uv run fwm ingest --only links        # refresh positions between economies (IMF and BIS; about four minutes)
 cd web && npm install && npm run build && cd ..
 uv run pytest              # accounting checks on the data, and a browser run through the UI
@@ -85,6 +88,7 @@ For UI development, run `uv run fwm serve --reload` and `npm run dev` in `web/` 
 - `src/fwm/euroarea.py`: the euro area's sector and instrument views, in the same shapes as the US ones, and who holds whose paper.
 - `src/fwm/eacontext.py`: euro-area rates, GDP, ECB announcements (`events_ea.csv`) and the dollar exchange rate.
 - `src/fwm/euweekly.py`: the Eurosystem's weekly balance sheet, in the same shape as the weekly Fed data.
+- `src/fwm/boj.py`, `src/fwm/japan.py`, `src/fwm/jpcontext.py`: Japan's accounts from the Bank of Japan's flow of funds, and its rates, GDP and announcements.
 - `src/fwm/links.py`: positions between economies from the IMF's portfolio survey and the BIS banking statistics.
 - `src/fwm/compare.py`: the economies side by side, in dollars and as a share of GDP.
 - `src/fwm/ddp.py`: reader for the Fed's download packages (H.15, H.4.1).

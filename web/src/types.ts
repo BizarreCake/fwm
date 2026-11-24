@@ -50,7 +50,7 @@ export interface LinksView {
 }
 
 export interface CompareMeasures {
-  native: number[];
+  native: (number | null)[];
   usd: (number | null)[];
   pct_of_gdp: (number | null)[];
 }
@@ -62,6 +62,7 @@ export interface CompareView {
   gdp: Record<string, CompareMeasures>;
   total: Record<string, CompareMeasures>;
   usd_per_eur: (number | null)[];
+  yen_per_usd?: (number | null)[] | null;
   instruments: ({ id: string; name: string } & Record<string, CompareMeasures>)[];
   holders: ({ id: string; name: string } & Record<string, CompareMeasures>)[];
   notes: { conversion: string; matching: string; what_it_is: string };
@@ -349,7 +350,28 @@ export interface CountrySide {
   long_term_valuation: (number | null)[];
 }
 
+export interface CountryLinksSide {
+  label: string;
+  period: string;
+  total: number | null;
+  series: (number | null)[];
+  top: { iso2: string; name: string; value: number; share_pct: number | null; page?: string | null }[];
+  everywhere_else: number | null;
+  reporters?: number;
+  in_us_dollars?: number | null;
+  in_euro?: number | null;
+}
+
+export interface CountryLinks {
+  iso2: string;
+  name: string;
+  kinds: { id: string; name: string; source: string; frequency: string; periods: string[]; own: CountryLinksSide | null; mirror: CountryLinksSide | null }[];
+  source: { name: string; imf: string; bis: string };
+  notes: { reading: string; mirror: string; custody: string };
+}
+
 export interface CountryView {
+  has_links: boolean;
   id: string;
   name: string;
   kind: "country" | "group";

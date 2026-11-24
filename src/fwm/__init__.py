@@ -10,6 +10,7 @@ RAW_H15 = ROOT / "data" / "raw" / "h15"
 RAW_H41 = ROOT / "data" / "raw" / "h41"
 RAW_TIC = ROOT / "data" / "raw" / "tic"
 RAW_ECB = ROOT / "data" / "raw" / "ecb"
+RAW_BOJ = ROOT / "data" / "raw" / "boj"
 RAW_LINKS = ROOT / "data" / "raw" / "links"
 DB_PATH = ROOT / "data" / "fwm.duckdb"
 
@@ -20,7 +21,7 @@ def main() -> None:
 
     ingest = sub.add_parser("ingest", help="Download the Z.1 accounts, H.15 interest rates and H.4.1 weekly Fed balance sheet into DuckDB")
     ingest.add_argument("--no-download", action="store_true", help="Reuse the files already in data/raw")
-    ingest.add_argument("--only", choices=["z1", "rates", "fed-weekly", "tic", "ecb", "links"], help="Refresh one source instead of all")
+    ingest.add_argument("--only", choices=["z1", "rates", "fed-weekly", "tic", "ecb", "boj", "links"], help="Refresh one source instead of all")
 
     ask = sub.add_parser("ask", help="Ask the agent one question from the command line")
     ask.add_argument("question")
@@ -36,7 +37,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "ingest":
-        from fwm import eacontext, ecb, euweekly, fedweekly, links, rates, tic, z1
+        from fwm import boj, eacontext, ecb, jpcontext, euweekly, fedweekly, links, rates, tic, z1
 
         if args.only in (None, "z1"):
             if not args.no_download:
@@ -73,6 +74,15 @@ def main() -> None:
                   f"dollar exchange rate to {context_summary['fx_latest']}")
             summary = ecb.ingest(RAW_ECB, DB_PATH)
             print(f"Loaded {summary['observations']:,} euro-area observations in {summary['series']:,} series; latest {summary['latest']}")
+        if args.only in (None, "boj"):
+            if not args.no_download:
+                boj.download(RAW_BOJ)
+                jpcontext.download(RAW_BOJ / "context")
+            context_summary = jpcontext.ingest(RAW_BOJ / "context", DB_PATH)
+            print(f"Loaded Japanese rates to {context_summary['rates_latest']}, GDP to {context_summary['gdp_latest']}, "
+                  f"yen exchange rate to {context_summary['fx_latest']}")
+            summary = boj.ingest(RAW_BOJ, DB_PATH)
+            print(f"Loaded {summary['observations']:,} Japanese observations in {summary['series']:,} series; latest {summary['latest']}")
         if args.only in (None, "links"):
             if not args.no_download:
                 links.download(RAW_LINKS)

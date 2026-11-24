@@ -279,10 +279,10 @@ def test_economies_side_by_side_convert_at_the_quarters_rate_and_add_up(con):
     view = compare.view(con)
     assert view["periods"][0] == "1999:Q1" and view["periods"][-1] == euroarea.periods(con)[-1]
     rate = view["usd_per_eur"][-1]
-    for economy in ("us", "ea"):
+    for economy in [e["id"] for e in view["economies"]]:
         total = view["total"][economy]
         for section in ("instruments", "holders"):
-            assert sum(row[economy]["native"][-1] for row in view[section]) == pytest.approx(total["native"][-1], rel=1e-9)
+            assert sum(row[economy]["native"][-1] or 0.0 for row in view[section]) == pytest.approx(total["native"][-1], rel=1e-9)
         own = systemmap.load(con, economy)
         assert total["native"][-1] == pytest.approx(sum(v[-1] for family in own["families"] for v in family["holders"].values()), rel=1e-9)
     euro = view["instruments"][0]["ea"]

@@ -1,7 +1,7 @@
 """The economies the system holds accounts for.
 
 An economy is a currency area with its own sector accounts: who holds and who
-owes each instrument, sector by sector. The United States and the euro area are loaded.
+owes each instrument, sector by sector. The United States, the euro area and Japan are loaded.
 Other countries appear only as counterparties of the US (see `countries.py`),
 which is not the same thing: that shows their claims on the US and the US's
 claims on them, not their own balance sheets.
@@ -28,24 +28,26 @@ ECONOMIES = {
         "accounts": "ECB Quarterly Sector Accounts, quarterly from 1999",
         "extras": [],
     },
+    "jp": {
+        "name": "Japan",
+        "currency": "JPY",
+        "accounts": "Bank of Japan Flow of Funds, quarterly from 1997",
+        "extras": [],
+    },
 }
 
 # Checked on 2026-11-24, not loaded.
-CANDIDATES = {
-    "japan": {
-        "name": "Japan", "currency": "JPY",
-        "accounts": "Bank of Japan Flow of Funds, quarterly",
-        "access": "The Bank of Japan's download page responded; the file format has not been examined.",
-    },
-}
+CANDIDATES: dict[str, dict] = {}
 
 
 def accounts(economy: str):
     """The modules that list and build one economy's sector and instrument views, with the same interface."""
-    from fwm import euroarea, instruments, sectors
+    from fwm import euroarea, instruments, japan, sectors
 
     if economy == "ea":
         return euroarea, euroarea
+    if economy == "jp":
+        return japan, japan
     return sectors, instruments
 
 

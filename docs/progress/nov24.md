@@ -102,7 +102,30 @@ Still open for the euro area: member countries, holdings by country, and vintage
   from the US.
 - Checks: 164 tests pass, 2 skipped as before.
 
+## Japan as a third economy
+
+- **Accounts.** Bank of Japan flow of funds, 1997:Q4 to 2026:Q2, in yen, on the same pages and tools as the US and
+  euro area (`#/jp`). Sectors add up to the published total and holders equal issuers in every quarter.
+- **Examples, 2026:Q2.** The Bank of Japan holds ¥470T of government bonds, 46.7% of the total; households hold
+  ¥2,519T of financial assets, about half in currency and deposits.
+- **Context.** Policy rate, bond yields, GDP, yen exchange rate and 13 Bank of Japan announcements, so share of GDP
+  and the rates chart work on Japan's pages.
+- **Side by side.** The comparison now has three economies: Japan's banks and central bank hold 423% of GDP against
+  138% in the US.
+- **Links cross-check.** The cross-border figures were compared with the US Treasury country data: holdings of US
+  equities agree; holdings of US debt are about 30% lower in the IMF data, which leaves out reserves.
+- **Known.** A break in the Japanese statistics at 2005:Q1; no weekly Bank of Japan data; no holdings by counterpart.
+
+## Every country in the cross-border data
+
+- **What changed.** The IMF and BIS data is now kept for every reporting country, not only the six economies. Each
+  country page has a card for its positions with every other country, and the assistant can answer for any country
+  or pair (for example Germany and Japan).
+- **Examples.** German residents hold $2.68T of foreign debt securities, most in France ($417B) and the US ($319B).
+  Banks abroad have $845B of claims on residents of China, 42% of it from Hong Kong.
+- **Known.** Debt securities are not split into government and other. What others report about a country leaves out
+  reserves and non-reporting countries. Countries outside the US Treasury list have no page.
+
 ## Next
 
-1. Japan as a third economy. Only the Bank of Japan's download page has been checked, not the file format.
-2. Any country as a reporter in the cross-border data, so country pages show more than the US view.
+1. The UK as a fourth economy. Its data has not been examined. (Paused here at the user's request.)

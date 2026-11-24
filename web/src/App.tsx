@@ -46,7 +46,7 @@ function Route() {
 
 // Pages about one economy's own accounts carry its id: #/us/sector/S121, #/ea/sector/S1M.
 const ECONOMY = "us";
-const ECONOMIES = ["us", "ea"];
+const ECONOMIES = ["us", "ea", "jp"];
 
 function Pages() {
   const hash = useHash();

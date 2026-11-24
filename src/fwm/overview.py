@@ -61,7 +61,9 @@ def _key(economy: str) -> str:
 def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) -> dict:
     sectors, instruments = economies.accounts(economy)
     euro = economy == "ea"
-    symbol = "€" if euro else "$"
+    symbol = {"ea": "€", "jp": "¥"}.get(economy, "$")
+    # Smaller flows are not reported as notable. A yen is worth far less than a dollar or a euro.
+    min_flow = 3_000_000 if economy == "jp" else MIN_FLOW
     listed = instruments.list_instruments(con)
     ids = [instrument["id"] for instrument in listed]
     flows: list[dict] = []
@@ -73,7 +75,7 @@ def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) ->
         view = instruments.view(con, instrument["id"])
         periods = view["periods"]
         last = len(periods) - 1
-        composite = _is_composite(instrument["id"], ids)
+        composite = _is_composite(instrument["id"], ids) or any(other.get("part_of") == instrument["id"] for other in listed)
         index.append({
             "id": instrument["id"],
             "name": instrument["name"],
@@ -109,7 +111,7 @@ def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) ->
                             continue
                         series = position[measure]
                         amount = series[last]
-                        if amount is None or abs(amount) < MIN_FLOW:
+                        if amount is None or abs(amount) < min_flow:
                             continue
                         since = _since(series, last)
                         bucket.append({
@@ -124,7 +126,7 @@ def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) ->
     unusual = [flow for flow in flows if flow["score"] is not None and abs(flow["score"]) >= UNUSUAL]
     return {
         "period": periods[-1],
-        "min_flow": MIN_FLOW,
+        "min_flow": min_flow,
         "window_quarters": WINDOW,
         "unusual_flows": sorted(unusual, key=lambda f: -abs(f["amount"]))[:TOP],
         "largest_flows": sorted(flows, key=lambda f: -abs(f["amount"]))[:TOP],
@@ -134,12 +136,20 @@ def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) ->
         "notes": {
             "unusual": f"Unusual means the quarter's net transactions are more than {UNUSUAL} standard deviations from "
                        f"that position's own average over the previous {WINDOW // 4} years. Largest first; flows "
-                       f"under {symbol}{MIN_FLOW // 1000}B are left out.",
+                       f"under {symbol}{min_flow // 1_000_000}T are left out." if min_flow >= 1_000_000 else
+                       f"Unusual means the quarter's net transactions are more than {UNUSUAL} standard deviations from "
+                       f"that position's own average over the previous {WINDOW // 4} years. Largest first; flows "
+                       f"under {symbol}{min_flow // 1000}B are left out.",
             "coverage": "Covers each sector's position in each instrument, from the ECB's quarterly sector accounts. "
                         "Left out of the rankings: other accounts, which are largely residuals. Central banks and "
                         "other banks are ranked separately, on their history from 2015. Amounts are in current "
                         "euro, so \"largest on record\" partly reflects growth in the size of the system."
                         if euro else
+                        "Covers each sector's position in each instrument, from the Bank of Japan's flow of funds. "
+                        "Debt securities as a whole are left out of the rankings because government bonds and bills, "
+                        "which are part of them, are ranked on their own. A sector shown in parts is ranked by its parts. "
+                        "Amounts are in current yen, so \"largest on record\" partly reflects growth in the size of the system."
+                        if economy == "jp" else
                         "Covers each sector's position in each instrument, from the Fed's Z.1 financial accounts. "
                         "Left out of the rankings: tables that are sums of other tables, which would count a flow "
                         "twice, and miscellaneous claims, which are largely residuals. Amounts are in current "
@@ -147,6 +157,9 @@ def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) ->
             "valuation": "Valuation & other is published by the ECB: mostly price and exchange-rate changes, plus "
                          "any reclassifications. Holders only."
                          if euro else
+                         "Valuation & other is the Bank of Japan's reconciliation between flows and stocks: mostly price "
+                         "and exchange-rate changes, plus reclassifications. Holders only."
+                         if economy == "jp" else
                          "Valuation & other is the change in level minus transactions: mostly price changes, plus "
                          "any reclassifications. Holders only.",
         },

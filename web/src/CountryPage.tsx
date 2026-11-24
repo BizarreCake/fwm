@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Chart } from "./Chart";
+import { CountryLinksCard } from "./CountryLinks";
 import { ModeToggle } from "./ModeToggle";
 import { StackedChart } from "./StackedChart";
 import { TimeBar, useTimeControls, type Range, type TimeControls } from "./time";
@@ -200,7 +201,10 @@ function Country({ view, period: linked }: { view: CountryView; period?: string 
         </div>
       </header>
 
-      <p className="callout">{notes.scope}</p>
+      <p className="callout">
+        {notes.scope}
+        {view.has_links && <> Its positions with every other country, from the IMF and BIS, are <a href="#links" onClick={(e) => { e.preventDefault(); document.getElementById("links")?.scrollIntoView(); }}>further down</a>.</>}
+      </p>
 
       <TimeBar time={time} />
 
@@ -288,6 +292,8 @@ function Country({ view, period: linked }: { view: CountryView; period?: string 
         <LineCharts line={line} view={view} time={time} />
         <p className="muted small">{line.scope}</p>
       </section>
+
+      {view.has_links && <CountryLinksCard key={view.id} countryId={view.id} name={view.name} />}
 
       <footer className="footer muted">
         <p>

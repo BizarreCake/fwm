@@ -400,3 +400,40 @@ def test_links_between_economies_page(page, base_url):
     page.wait_for_function("document.querySelector('h2')?.innerText.includes('Japan')")
     assert page.url.endswith("#/links?pair=jp-us") and "Japan and United States" in page.inner_text("main")
     assert page.locator("select").first.input_value() == "jp"
+
+
+def test_japan_pages_are_in_yen(page, base_url):
+    page.goto(f"{base_url}/#/")
+    page.wait_for_selector("h1")
+    page.get_by_role("button", name="Japan").click()
+    page.wait_for_function("document.querySelector('h1')?.innerText.includes('Japan financial system')")
+    page.wait_for_selector("svg[aria-label^='Amounts owed and held']")
+    front = page.inner_text("main")
+    assert page.url.endswith("#/jp") and "Amounts are in yen" in front and "Bank of Japan" in front and "¥" in front
+    assert "Government bonds & bills" in front and "Held in custody" not in front
+    page.goto(f"{base_url}/#/jp/instrument/I311")
+    page.wait_for_function("document.querySelector('h1')?.innerText.includes('Government bonds')")
+    page.wait_for_selector("svg")
+    text = page.inner_text("main")
+    assert "Bank of Japan" in text and "¥" in text and "$" not in text and "€" not in text
+    assert page.get_by_role("button", name="Yen").count() == 1 and page.get_by_role("button", name="% of GDP").count() == 1
+    assert "Interest rates and Bank of Japan announcements" in text
+    page.get_by_role("link", name="Bank of Japan").first.click()
+    page.wait_for_function("document.querySelector('h1')?.innerText.includes('Bank of Japan')")
+    assert "#/jp/sector/S110" in page.url and "statistics change basis at 2005:Q1" in page.inner_text("main")
+
+
+def test_country_page_shows_positions_with_the_rest_of_the_world(page):
+    page.goto(page.base + "/#/country/germany")
+    page.wait_for_selector("#links table.compare")
+    card = page.locator("#links")
+    text = card.inner_text()
+    assert "Germany and the rest of the world" in text and "Debt securities held by residents of Germany" in text
+    assert "France" in text and "Everywhere else" in text and "countries reporting" in text
+    card.get_by_role("button", name="Bank claims").click()
+    page.wait_for_function("document.querySelector('#links').innerText.includes('Claims of banks located in Germany')")
+    assert "in US dollars" in card.inner_text()
+    card.get_by_role("link", name="France").first.click()
+    page.wait_for_function("location.hash === '#/country/france'")
+    page.wait_for_function("document.querySelector('#links')?.innerText.includes('France and the rest of the world')")
+    assert "held by residents of France" in page.locator("#links").inner_text()

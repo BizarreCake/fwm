@@ -17,7 +17,7 @@ import json
 
 import duckdb
 
-from fwm import economies, euroarea, instruments
+from fwm import economies, euroarea, instruments, japan
 
 # (id, name, page to open, tables with sign, counted as debt-like)
 FAMILIES: tuple[tuple[str, str, str, tuple[tuple[str, int], ...], bool], ...] = (
@@ -43,6 +43,18 @@ EURO_FAMILIES: tuple[tuple[str, str, str, tuple[tuple[str, int], ...], bool], ..
     ("equities", "Equity", "F51", (("F51", 1),), False),
     ("pensions_insurance", "Insurance & pensions", "F6", (("F6", 1),), False),
 )
+JAPAN_FAMILIES: tuple[tuple[str, str, str, tuple[tuple[str, int], ...], bool], ...] = (
+    ("government_bonds", "Government bonds & bills", "I311", (("I311", 1), ("I310", 1)), True),
+    ("other_debt", "Other debt securities", "I300", (("I300", 1), ("I311", -1), ("I310", -1)), True),
+    ("loans", "Loans", "I200", (("I200", 1),), True),
+    ("deposits", "Deposits & currency", "I100", (("I100", 1),), True),
+    ("fund_shares", "Investment trusts", "I318", (("I318", 1),), False),
+    ("equities", "Equity", "I330", (("I330", 1),), False),
+    ("pensions_insurance", "Insurance & pensions", "I400", (("I400", 1),), False),
+    ("foreign_securities", "Securities issued abroad", "I540", (("I540", 1),), False),
+)
+JAPAN_NOT_COVERED = ("Trade credit, accounts receivable, derivatives, direct investment abroad, deposits with the Fiscal "
+                     "Loan Fund and other items are not on the map.")
 EURO_NOT_COVERED = "Trade credit and other accounts, derivatives, and monetary gold and SDRs are not on the map."
 
 
@@ -53,8 +65,8 @@ def _key(economy: str) -> str:
 def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) -> dict:
     euro = economy == "ea"
     source = economies.accounts(economy)[1]
-    family_list = EURO_FAMILIES if euro else FAMILIES
-    groups = [(g[0], g[1]) for g in (euroarea.GROUPS if euro else instruments.GROUPS)]
+    family_list = {"ea": EURO_FAMILIES, "jp": JAPAN_FAMILIES}.get(economy, FAMILIES)
+    groups = [(g[0], g[1]) for g in {"ea": euroarea.GROUPS, "jp": japan.GROUPS}.get(economy, instruments.GROUPS)]
     views: dict[str, dict] = {}
     for _, _, _, tables, _ in family_list:
         for table, _ in tables:
@@ -89,7 +101,7 @@ def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) ->
         })
     return {
         "periods": periods,
-        "unit": "EUR millions" if euro else "USD millions",
+        "unit": f"{economies.ECONOMIES[economy]['currency']} millions",
         "groups": [{"id": group_id, "name": name} for group_id, name in groups],
         "families": families,
         "notes": {
@@ -100,6 +112,13 @@ def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) ->
                      "Banks & central banks includes money market funds.",
             "coverage": EURO_NOT_COVERED,
         } if euro else {
+            "reading": "Left: what each sector group owes or has issued. Right: what each group holds. Band widths "
+                       "are yen. The two sides meet at the instrument; the map does not say which holder holds "
+                       "which issuer's paper.",
+            "sides": "Both sides include the rest of the world, so amounts owed and held of each instrument match. "
+                     "Securities issued abroad are owed entirely by the rest of the world.",
+            "coverage": JAPAN_NOT_COVERED,
+        } if economy == "jp" else {
             "reading": "Left: what each sector group owes or has issued. Right: what each group holds. Band widths "
                        "are dollars. The two sides meet at the instrument; the map does not say which holder holds "
                        "which issuer's paper, because Z.1 does not record that.",

@@ -15,7 +15,7 @@ from typing import Any
 
 import duckdb
 
-from fwm import compare, context, countries, links, eacontext, economies, euroarea, euweekly, fedweekly, tic, instruments, overview, sectors, systemmap
+from fwm import compare, context, countries, japan, jpcontext, links, eacontext, economies, euroarea, euweekly, fedweekly, tic, instruments, overview, sectors, systemmap
 
 GAP_CATEGORIES = {
     "counterparty": "Which holder holds which issuer's paper, or who lends to whom. Z.1 has each side's totals only.",
@@ -95,6 +95,8 @@ def _economy(con: duckdb.DuckDBPyConnection, economy: str) -> dict:
         raise ToolError(f"Unknown economy {economy!r}. Use one of: {', '.join(economies.ECONOMIES)}.")
     if economy == "ea" and not euroarea.available(con):
         raise ToolError("The euro area accounts are not loaded in this installation.")
+    if economy == "jp" and not japan.available(con):
+        raise ToolError("Japan's accounts are not loaded in this installation.")
     sector_module, instrument_module = economies.accounts(economy)
     info = economies.ECONOMIES[economy]
     return {"id": economy, "name": info["name"], "unit": f"{info['currency']} billions", "sectors": sector_module,
@@ -241,11 +243,50 @@ def _history_rows(periods: list[str], picks: list[int], level: list, flow: list,
     return rows
 
 
+def _japan_history(con: duckdb.DuckDBPyConnection, series: list[str], start: str | None, end: str | None, frequency: str,
+                   share_of_gdp: bool = False) -> dict:
+    periods = japan.periods(con)
+    i = _index(periods, end, "end")
+    j = _index(periods, start, "start") if start else max(0, i - 40)
+    if j > i:
+        raise ToolError("start must not be after end")
+    if frequency not in ("auto", "quarterly", "annual"):
+        raise ToolError("frequency must be auto, quarterly or annual")
+    annual = frequency == "annual" or (frequency == "auto" and i - j > 48)
+    picks = [k for k in range(j, i + 1) if not annual or periods[k].endswith("Q4") or k == i]
+    accounts = japan.Accounts(con)
+    gdp = jpcontext.gdp(con, periods) if share_of_gdp else None
+    out = []
+    for series_id in series:
+        match = re.fullmatch(r"FOF_FFAS(\d{3})([AL])(\d{3})", series_id)
+        if not match or series_id not in accounts.data:
+            raise ToolError(f"{series_id!r} is not a Japanese series id as returned by get_instrument or get_sector")
+        sector, side = f"S{match.group(1)}", "assets" if match.group(2) == "A" else "liabilities"
+        code = "F" if match.group(3) == "900" else f"I{match.group(3)}"
+        position = accounts.position(sector, side, code)
+        out.append({"series": series_id,
+                    "description": f"{japan.ALL_NAMES.get(sector, sector)}: {japan.NAMES.get(code, code).lower()}, {side}",
+                    "basis": japan._basis(code),
+                    "observations": _history_rows(periods, picks, position["level"], position["transactions"], position["other_change"], gdp)})
+    return {"unit": "JPY billions", "frequency": "annual (year-end amounts; flows summed over the year)" if annual else "quarterly",
+            "series": out, "caveats": ["Amounts are in yen and are not converted.",
+                                       "Valuation and other is the Bank of Japan's reconciliation between flows and stocks."]}
+
+
 def get_history(con: duckdb.DuckDBPyConnection, series: list[str], start: str | None = None, end: str | None = None,
                 frequency: str = "auto", share_of_gdp: bool = False) -> dict:
     """Levels, flows and valuation changes of up to six series over time."""
     if not series or len(series) > 6:
         raise ToolError("Pass between one and six series ids, as returned by get_instrument or get_sector.")
+    yen = [series_id.startswith("FOF_") for series_id in series]
+    if any(yen):
+        if not all(yen):
+            raise ToolError("Pass series from one economy at a time: amounts are in different currencies.")
+        if not japan.available(con):
+            raise ToolError("Japan's accounts are not loaded in this installation.")
+        if share_of_gdp and not jpcontext.available(con):
+            raise ToolError("GDP is not loaded for Japan in this installation.")
+        return _japan_history(con, series, start, end, frequency, share_of_gdp)
     euro = [series_id.startswith("QSA.") for series_id in series]
     if any(euro):
         if not all(euro):
@@ -381,8 +422,8 @@ def compare_economies(con: duckdb.DuckDBPyConnection, period: str | None = None)
     def cell(measures: dict, economy: str) -> dict:
         usd, share = measures["usd"][i], measures["pct_of_gdp"][i]
         out = {"usd_billions": _bn(usd), "pct_of_own_gdp": None if share is None else round(share)}
-        if economy == "ea":
-            out["eur_billions"] = _bn(measures["native"][i])
+        if economy != "us":
+            out[f"{economies.ECONOMIES[economy]['currency'].lower()}_billions"] = _bn(measures["native"][i])
         return out
 
     def rows(section: list[dict]) -> list[dict]:
@@ -392,7 +433,9 @@ def compare_economies(con: duckdb.DuckDBPyConnection, period: str | None = None)
         "period": periods[i],
         "usd_per_eur": view["usd_per_eur"][i],
         "gdp_over_four_quarters": {names[e]: {"usd_billions": _bn(view["gdp"][e]["usd"][i]),
-                                             **({"eur_billions": _bn(view["gdp"][e]["native"][i])} if e == "ea" else {})} for e in names},
+                                             **({f"{economies.ECONOMIES[e]['currency'].lower()}_billions": _bn(view["gdp"][e]["native"][i])}
+                                                if e != "us" else {})} for e in names},
+        **({"yen_per_usd": round(view["yen_per_usd"][i], 2)} if view.get("yen_per_usd") and view["yen_per_usd"][i] else {}),
         "total_of_instruments_below": {names[e]: cell(view["total"][e], e) for e in names},
         "outstanding_by_instrument": rows(view["instruments"]),
         "held_by": rows(view["holders"]),
@@ -414,12 +457,72 @@ def _area(view: dict, given: str) -> str:
                     + ". Other countries appear only inside 'everywhere else'.")
 
 
+def _country_links(con: duckdb.DuckDBPyConnection, iso2: str, caveats: list[str]) -> dict:
+    """One country against every other, from its own report and from everyone else's."""
+    view = links.country(con, iso2, top=8)
+    if view is None:
+        raise ToolError("Nothing is published for this country in the cross-border data.")
+    by_kind = []
+    for kind in view["kinds"]:
+        entry: dict = {"what": kind["name"], "source": kind["source"], "frequency": kind["frequency"]}
+        for side, key in (("own", "reported_by_this_country"), ("mirror", "reported_by_other_countries")):
+            block = kind[side]
+            if block is None:
+                entry[key] = None
+                continue
+            entry[key] = {
+                "meaning": block["label"], "period": block["period"], "total": _bn(block["total"]),
+                "largest": {row["name"]: _bn(row["value"]) for row in block["top"]} or "not published by country",
+                **({"everywhere_else": _bn(block["everywhere_else"])} if block["top"] else {}),
+                **({"countries_reporting": block["reporters"]} if side == "mirror" and kind["source"] == "IMF" else {}),
+                **({"in_us_dollars": _bn(block["in_us_dollars"]), "in_euro": _bn(block["in_euro"])} if block.get("in_us_dollars") is not None else {}),
+                "year_ends": [{"period": p, "total": _bn(v)} for p, v in zip(kind["periods"], block["series"])
+                              if v is not None and p.endswith("Q4")][-6:],
+            }
+        by_kind.append(entry)
+    page = countries.page_of(con, iso2)
+    return {"country": view["name"], "unit": "USD billions", "by_kind": by_kind,
+            "caveats": [view["notes"]["mirror"], view["notes"]["custody"], *caveats[:3]],
+            "link": f"#/country/{page}" if page else "#/links"}
+
+
+def _country_pair(con: duckdb.DuckDBPyConnection, view: dict, a: tuple[str, tuple], b: tuple[str, tuple], caveats: list[str]) -> dict:
+    """Both directions between two countries, or a country and one of the economies."""
+    if set(a[1]) & set(b[1]):
+        raise ToolError(f"{a[0]} and {b[0]} overlap; give two separate countries or economies.")
+    name_of = {a[1]: a[0], b[1]: b[0]}
+    sentences = {kind["id"]: kind["sentence"] for kind in view["kinds"]}
+    by_kind = []
+    for kind in links.pair(con, a[1], b[1]):
+        directions = []
+        for direction in kind["directions"]:
+            holder, issuer = name_of[direction["holders"]], name_of[direction["issuers"]]
+            history = direction["history"]
+            if not history:
+                directions.append({"meaning": sentences[kind["id"]].format(holder=holder, issuer=issuer, amount="an amount"),
+                                   "amount": None, "why_missing": f"{holder} does not publish this by country."})
+                continue
+            directions.append({
+                "meaning": sentences[kind["id"]].format(holder=holder, issuer=issuer, amount="this amount"),
+                "period": history[-1]["period"], "amount": _bn(history[-1]["value"]),
+                "history": [{"period": h["period"], "amount": _bn(h["value"])} for h in history],
+                **({"members_reporting": len(direction["reporting"])} if len(direction["holders"]) > 1 else {}),
+            })
+        by_kind.append({"what": kind["name"], "source": kind["source"], "directions": directions})
+    page = next((p for members in (a[1], b[1]) if len(members) == 1 and (p := countries.page_of(con, members[0]))
+                 and members[0] not in ("US", "JP")), None)
+    return {"pair": [a[0], b[0]], "unit": "USD billions", "by_kind": by_kind,
+            "note": "Debt securities are all issuers together: government, banks and companies are not separated.",
+            "caveats": caveats[:3], "link": f"#/country/{page}" if page else "#/links"}
+
+
 def get_cross_border_links(con: duckdb.DuckDBPyConnection, economy: str | None = None, other: str | None = None) -> dict:
     view = links.view(con)
     if view is None:
         raise ToolError("Links between economies are not loaded in this installation.")
     names = view["column_names"]
-    caveats = [view["notes"]["reading"], view["notes"]["custody"], view["notes"]["not_included"], view["notes"]["euro_area"], view["notes"]["gaps"]]
+    caveats = [view["notes"]["reading"], view["notes"]["custody"], view["notes"]["not_included"], view["notes"]["euro_area"], view["notes"]["gaps"],
+               view["notes"]["against_us_data"]]
     banks = view["all_banks"]
 
     def all_banks(area: str) -> dict:
@@ -449,7 +552,23 @@ def get_cross_border_links(con: duckdb.DuckDBPyConnection, economy: str | None =
             "link": "#/links",
         }
 
-    a = _area(view, economy)
+    def resolve(given: str) -> tuple[str | None, str, tuple[str, ...]]:
+        try:
+            area = _area(view, given)
+            return area, names[area], tuple(links.MEMBERS[area])
+        except ToolError:
+            row = links.find_country(given)
+            if row is None:
+                raise ToolError(f"No economy or country {given!r} in the cross-border data.") from None
+            return None, row["name"], (row["iso2"],)
+
+    a, a_name, a_members = resolve(economy)
+    if a is None and other is None:
+        return _country_links(con, a_members[0], caveats)
+    if other is not None:
+        b, b_name, b_members = resolve(other)
+        if a is None or b is None:
+            return _country_pair(con, view, (a_name, a_members), (b_name, b_members), caveats)
     if other is None:
         out = {"economy": names[a], "unit": "USD billions", "by_kind": []}
         for kind in view["kinds"]:
@@ -543,6 +662,10 @@ def get_who_holds_whose(con: duckdb.DuckDBPyConnection, instrument_id: str, peri
 
 def _context(con: duckdb.DuckDBPyConnection, economy: str):
     _economy(con, economy)
+    if economy == "jp":
+        if not jpcontext.available(con):
+            raise ToolError("Japan's rates, GDP and announcements are not loaded in this installation.")
+        return jpcontext
     if economy == "ea":
         if not eacontext.available(con):
             raise ToolError("Euro-area rates, GDP and announcements are not loaded in this installation.")
@@ -554,6 +677,7 @@ def get_rates_and_gdp(con: duckdb.DuckDBPyConnection, start: str | None = None, 
                       economy: str = economies.DEFAULT) -> dict:
     view = _context(con, economy).view(con)
     euro = economy == "ea"
+    yen = economy == "jp"
     periods = view["periods"]
     i = _index(periods, end, "end")
     j = _index(periods, start, "start") if start else max(0, i - 12)
@@ -563,20 +687,25 @@ def get_rates_and_gdp(con: duckdb.DuckDBPyConnection, start: str | None = None, 
         raise ToolError("Ask for at most 80 quarters at a time")
     return {
         "rates_unit": "percent per year, quarterly average of daily rates",
-        "gdp_unit": f"{'EUR' if euro else 'USD'} billions, nominal, over the four quarters ending in that quarter",
+        "gdp_unit": f"{economies.ECONOMIES[economy]['currency']} billions, nominal, over the four quarters ending in that quarter",
         "rates": {rate["id"]: rate["name"] for rate in view["rates"]},
         "quarters": [
             {"period": periods[k], **{rate["id"]: rate["values"][k] for rate in view["rates"]},
              "gdp": _bn(view["gdp"]["values"][k]),
-             **({"usd_per_eur_at_quarter_end": view["fx"]["values"][k]} if euro else {})}
+             **({"usd_per_eur_at_quarter_end": view["fx"]["values"][k]} if euro else {}),
+             **({"yen_per_usd_at_quarter_end": round(1 / view["fx"]["values"][k], 2) if view["fx"]["values"][k] else None} if yen else {})}
             for k in range(j, i + 1)
         ],
         "latest_daily": {rate["id"]: rate["latest"] for rate in view["rates"]},
         **({"policy_rate_changes": eacontext.policy_changes(con),
             "policy_rate_changes_note": "The ten most recent changes in the deposit facility rate, by the day each took "
                                         "effect (a few days after the decision was announced)."} if euro else {}),
+        **({"policy_rate_changes": jpcontext.policy_changes(con),
+            "policy_rate_changes_note": "The ten most recent changes in the Bank of Japan's policy rate, by the day each "
+                                        "took effect. Where the target was a range, the rate is its midpoint."} if yen else {}),
         "source": ("ECB: key interest rates, euro area AAA government yield curve, national accounts series "
                    + view["gdp"]["series"] + ", reference exchange rate") if euro
+                  else "BIS policy rate series; Ministry of Finance JGB yields; " + view["gdp"]["series"] + " (GDP); ECB reference rates" if yen
                   else "Federal Reserve H.15 (rates); Z.1 series " + view["gdp"]["series"] + " (GDP)",
     }
 
@@ -584,7 +713,7 @@ def get_rates_and_gdp(con: duckdb.DuckDBPyConnection, start: str | None = None, 
 def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = None, end: str | None = None,
                           economy: str = economies.DEFAULT) -> dict:
     source = _context(con, economy)
-    periods = euroarea.periods(con) if economy == "ea" else context.periods(con)
+    periods = euroarea.periods(con) if economy == "ea" else japan.periods(con) if economy == "jp" else context.periods(con)
     i = _index(periods, end, "end") if end else None
     j = _index(periods, start, "start") if start else None
     events = []
@@ -597,6 +726,14 @@ def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = No
         if k is not None and ((i is not None and k > i) or (j is not None and k < j)):
             continue
         events.append({key: event[key] for key in ("date", "period", "kind", "title", "detail", "url")})
+    if economy == "jp":
+        return {
+            "central_bank": "Bank of Japan",
+            "events": events,
+            "coverage": "A hand-curated calendar of major Bank of Japan announcements from 2010: its easing programmes, "
+                        "changes of framework and rate changes. Each is named after the Bank's release; details beyond "
+                        "the release title and the recorded policy rate are not included. Not every meeting.",
+        }
     if economy == "ea":
         return {
             "central_bank": "European Central Bank",
@@ -616,6 +753,8 @@ def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = No
 
 def _weekly(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) -> dict:
     _economy(con, economy)
+    if economy == "jp":
+        raise ToolError("The Bank of Japan's balance sheet is loaded quarterly only (get_sector S110 with economy jp), not weekly.")
     view = (euweekly if economy == "ea" else fedweekly).view(con)
     if view is None:
         raise ToolError("The weekly central bank balance sheet is not loaded for this economy.")
@@ -925,8 +1064,9 @@ _PERIOD = {"type": "string", "description": "A quarter such as 2024:Q3. Omit for
 _COMPARE = {"type": "string", "description": "An earlier quarter such as 2022:Q1. If given, each position also reports "
                                               "its change since then, split into net transactions and valuation."}
 _ECONOMY = {"type": "string", "enum": sorted(economies.ECONOMIES),
-            "description": "us (default; amounts in USD) or ea for the euro area (amounts in EUR, quarterly from 1999:Q1). "
-                           "Sector and instrument ids differ between the two: list them for the economy you want."}
+            "description": "us (default; amounts in USD), ea for the euro area (amounts in EUR, quarterly from 1999:Q1) or "
+                           "jp for Japan (amounts in JPY, quarterly from 1997:Q4). Sector and instrument ids differ "
+                           "between them: list them for the economy you want."}
 
 # name -> (function, description, input schema)
 REGISTRY: dict[str, tuple[Any, str, dict]] = {
@@ -970,22 +1110,24 @@ REGISTRY: dict[str, tuple[Any, str, dict]] = {
         "questions about the overall shape of the system or one group's role across instruments.",
         _schema({"period": _PERIOD, "economy": _ECONOMY}, [])),
     "compare_economies": (compare_economies,
-        "The United States and the euro area side by side in one quarter: amounts outstanding of each kind of instrument "
+        "The United States, the euro area and Japan side by side in one quarter: amounts outstanding of each kind of instrument "
         "(debt securities, loans, deposits, fund shares, equity, pensions and insurance) and what each sector group holds, "
         "in US dollars at that quarter's exchange rate and as a percent of each economy's own GDP, with GDP itself. Use it "
-        "for any question that sets the two economies against each other in size or structure. This is the only place "
-        "euro amounts are converted. From 1999:Q1.",
+        "for any question that sets these economies against each other in size or structure. This is the only place "
+        "euro and yen amounts are converted. From 1999:Q1.",
         _schema({"period": _PERIOD}, [])),
     "get_cross_border_links": (get_cross_border_links,
         "Positions between economies, in US dollars: holdings of each other's equity and fund shares and debt securities "
         "(IMF portfolio survey, end of June and December, to end-2025), and what banks located in one are owed by and owe to "
         "residents of the other (BIS, quarterly from 1999). Economies: us, ea (euro area), jp (Japan), uk, cn (China), "
-        "ky (Cayman Islands). With no arguments: every pair, latest, plus all reporting banks' positions with each economy "
+        "ky (Cayman Islands). Any other country can also be given by name (Germany, Switzerland, Korea): alone, for its "
+        "largest counterparts in each direction from its own report and from what other countries report about it; or as "
+        "one of a pair. With no arguments: every pair of the six economies, latest, plus all reporting banks' positions with each economy "
         "split into US dollars and euro (the measure of dollars outside the United States). With `economy`: that economy "
         "against all the others. With `economy` and `other`: both directions for that pair with year-end history. This is "
         "the only tool with euro-area or Japanese holdings by counterparty country; it has no sectors, maturities or flows.",
-        _schema({"economy": {"type": "string", "description": "us, ea, jp, uk, cn or ky. Omit for all pairs."},
-                 "other": {"type": "string", "description": "A second economy, for both directions of one pair with history."}}, [])),
+        _schema({"economy": {"type": "string", "description": "us, ea, jp, uk, cn or ky, or a country name. Omit for all pairs."},
+                 "other": {"type": "string", "description": "A second economy or country, for both directions of one pair with history."}}, [])),
     "get_who_holds_whose": (get_who_holds_whose,
         "Euro area only: what each sector holds of each sector's paper, for one instrument in one quarter, as holder and "
         "issuer pairs with amount, share, and that quarter's transactions and valuation change (and the change since "

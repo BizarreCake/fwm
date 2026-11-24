@@ -30,15 +30,30 @@ When a gap here is closed, also update the "What the data cannot say" section of
   - China and the Cayman Islands publish bank positions in total only. The currency of bank positions is published only for all reporting banks together, not by pair.
   - Securities are placed by the issuer's residence and bank positions by the office's location, so holdings through financial centres show as claims on the centre.
   - Not included: direct investment, lending by non-banks, derivatives, and reserves by country. No sectors, maturities or flows, though both sources have some of this. No vintages kept.
+  - Checked against TIC at end-2025: US holdings abroad agree exactly (same underlying survey), and Japanese and euro-area holdings of US equities agree within 3%. Their holdings of US debt are about 30% lower than TIC, mainly because the portfolio survey leaves out reserves. UK lower and Cayman higher than TIC, from custody against ownership.
   - Only the countries inside those six economies are stored as reporters; other countries are in the downloads but not loaded.
+- [x] **Every country in the cross-border data** — the same two sources, now kept for every reporting country (about 90 in the IMF survey, about 30 publishing bank positions by country). Each country page has a card for its positions with every other country: what it reports by counterpart, and what the others report about it, for the four kinds, with totals over time. The assistant's tool takes any country alone or in a pair. (`links.country`, `links.pair`, `country_codes.csv`, `/api/countries/{id}/links`)
+  - Country codes differ between the sources (two letters at the BIS, three at the IMF); `country_codes.csv` maps 249 countries, built by matching names and corrected by hand.
+  - What others report about a country is a sum over the reporting countries only, and leaves out reserves, so it understates. Fewer countries report in June than in December; a date is left out when the reporters present stand for under 90% of the usual total.
+  - Debt securities are all issuers together: a country's government bonds cannot be separated from its bank and company bonds.
+  - Only countries in the US Treasury country list have pages (231); the United States itself has none, and is on the links page instead.
+- [x] **Japan's financial accounts (Bank of Japan Flow of Funds, 2008 SNA basis)** — quarterly, 1997:Q4 onward, in yen. The third full economy: balance sheets for 14 sectors plus the rest of the world, and holders and issuers of nine instruments including government bonds and Treasury bills on their own, on the same pages as the others (`#/jp`). Stocks, flows and the Bank's reconciliation give the same three measures as elsewhere. One 6 MB download, loaded in about 15 seconds; each file is kept as a vintage. (`boj.py`, `japan.py`, `uv run fwm ingest --only boj`)
+  - The Bank of Japan and the rest of the world are sectors of their own for the whole history; nothing is derived.
+  - The series change statistical basis at 2005:Q1. Levels step there by more than flows and reconciliation explain (about ¥1,000T summed over all positions). Left as published and noted on the pages; it is the only such quarter.
+  - Total liabilities are the sum of the lines, because the published total includes net worth.
+  - Three holdings are negative at times and are real: securities dealers' short positions in government bonds and in foreign securities, and over-funded pension funds' claims on sponsors.
+  - Residents' holdings of foreign securities are one item, not split into debt and equity.
+  - No holdings by counterpart sector, and no weekly Bank of Japan balance sheet (the Bank publishes one every ten days; not loaded).
+- [x] **Japan: rates, GDP, exchange rate, announcements** — policy rate (BIS central bank policy rates, daily), 2- and 10-year government bond yields (Ministry of Finance, daily), nominal GDP (OECD quarterly national accounts, seasonally adjusted, from 1994), yen per euro (ECB), with dollars per yen as the ratio of two ECB rates. 13 Bank of Japan announcements from 2010, each checked against the Bank's list of releases for its date and title; their details go no further than the title and the recorded policy rate. (`jpcontext.py`, `events_jp.csv`)
+- [x] **Three economies side by side** — the comparison card and tool now include Japan.
 - [x] **Z.1 vintages** — every release we download is kept in `data/raw/z1/vintages/`. Only one so far.
 
 ## Next
 
 The aim is to explain how money moves between economies, not only inside the US. Economies are chosen by financial weight (US, euro area, Japan, UK, China), and the links between them come first.
 
-1. [ ] **More from the cross-border sources** — any country as a reporter (so country pages can show links with the euro area and others, not only the US), holder sectors and maturities from the portfolio survey, the BIS consolidated statistics (banks by nationality rather than location), and direct investment positions (IMF, dataset DIP).
-2. [ ] **Japan, then the UK, then China** — quarterly flow of funds for the first two (the Bank of Japan's download page responds; its file format has not been examined); China's data is thought to be annual and coarse, to be verified before committing.
+1. [ ] **More from the cross-border sources** — holder sectors and maturities from the portfolio survey, the BIS consolidated statistics (banks by nationality rather than location), and direct investment positions (IMF, dataset DIP).
+2. [ ] **The UK, then China** — the UK's quarterly financial accounts (ONS; not examined); China's data is thought to be annual and coarse, to be verified before committing.
 3. [ ] **Bank balance sheets, weekly (H.8)** — loans, deposits, securities, cash. Can reuse the weekly tables, page layout and download reader built for H.4.1 (`ddp.py`).
 4. [ ] **Weekly and monthly figures on the quarterly pages** — the weekly Fed data and monthly country data live on their own pages. The Fed's securities are at face value weekly and at market value in Z.1, so they cannot share a chart without care.
 

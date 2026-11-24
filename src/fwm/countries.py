@@ -16,7 +16,7 @@ import re
 
 import duckdb
 
-from fwm import tic
+from fwm import links, tic
 
 MEASURES = ("total", "total_net", "long_term_valuation")
 NOTES = {
@@ -49,6 +49,34 @@ def _entities(con: duckdb.DuckDBPyConnection) -> dict[str, dict]:
         entity["codes"][source] = code
         entity["region"] = entity["region"] or region
     return out
+
+
+def code_of(entity: dict) -> str | None:
+    """The ISO two-letter code of a country that has a page, for the cross-border data."""
+    row = links.find_country(entity["name"]) if entity["kind"] == "country" else None
+    return row["iso2"] if row else None
+
+
+def page_of(con: duckdb.DuckDBPyConnection, iso2: str) -> str | None:
+    """The id of the country page for an ISO code, if the country has one."""
+    if not tic.available(con):
+        return None
+    return next((key for key, entity in _entities(con).items() if code_of(entity) == iso2), None)
+
+
+def cross_border(con: duckdb.DuckDBPyConnection, country_id: str) -> dict | None:
+    """The country's positions with every other country, with links to their pages."""
+    entity = _entities(con).get(country_id) if tic.available(con) else None
+    code = code_of(entity) if entity else None
+    view = links.country(con, code) if code else None
+    if view is None:
+        return None
+    pages = {code_of(e): key for key, e in _entities(con).items()}
+    for kind in view["kinds"]:
+        for side in ("own", "mirror"):
+            for row in (kind[side] or {}).get("top", []):
+                row["page"] = pages.get(row["iso2"])
+    return view
 
 
 def _series(con: duckdb.DuckDBPyConnection, asset: str, months: list[str]) -> dict[str, dict[str, list]]:
@@ -144,6 +172,7 @@ def view(con: duckdb.DuckDBPyConnection, country_id: str) -> dict | None:
     release = con.execute("SELECT url, latest_period FROM source_release WHERE source_id = 'treasury_tic_slt1'").fetchone()
     return {
         "id": entity["id"], "name": entity["name"], "kind": entity["kind"], "region": entity["region"],
+        "has_links": bool(links.available(con) and code_of(entity)),
         "unit": "USD millions",
         "periods": months,
         "holds_us": holds_us,

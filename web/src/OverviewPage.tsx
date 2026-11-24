@@ -5,7 +5,7 @@ import { WeeklyStrip } from "./WeeklyFedPage";
 import { CountriesCard } from "./CountryPage";
 import type { Move, Overview } from "./types";
 import { useFetch } from "./useFetch";
-import { api, base, color, economy, economyName, periodLabel, usd } from "./util";
+import { api, base, color, currencyName, economy, economyName, periodLabel, usd } from "./util";
 
 export function OverviewPage() {
   const { data, error } = useFetch<Overview>(api("overview"));
@@ -21,7 +21,7 @@ export function OverviewPage() {
           <h1>{us ? "US" : economyName()} financial system, {quarter}</h1>
           <p className="muted">
             The whole system on one page, what moved in the latest quarter, and where to look next.
-            {!us && " Amounts are in euro; nothing is converted."}
+            {!us && ` Amounts are in ${currencyName().toLowerCase()}.`}
           </p>
         </div>
         <EconomySwitch />
@@ -114,7 +114,7 @@ export function OverviewPage() {
         <p>{data.notes.unusual}</p>
         <p>{data.notes.valuation}</p>
         <p>{data.notes.coverage}</p>
-        {!us && (
+        {economy() === "ea" && (
           <p>
             Not built for the euro area: holdings by country. Euro amounts are converted to dollars only in the side-by-side card.
           </p>
