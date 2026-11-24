@@ -6,7 +6,7 @@ const Context = createContext<ContextView | null>(null);
 
 /** Rates, GDP and policy events, fetched once and shared by every chart. Pages work without it. */
 export function ContextProvider({ children }: { children: ReactNode }) {
-  const { data } = useFetch<ContextView>("/api/context");
+  const { data } = useFetch<ContextView>("/api/economy/us/context");
   return <Context.Provider value={data}>{children}</Context.Provider>;
 }
 

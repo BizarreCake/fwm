@@ -1,10 +1,13 @@
 import { SystemMapCard } from "./SystemMap";
+import { EconomySwitch } from "./EconomyPage";
+import { WeeklyStrip } from "./WeeklyFedPage";
+import { CountriesCard } from "./CountryPage";
 import type { Move, Overview } from "./types";
 import { useFetch } from "./useFetch";
 import { color, periodLabel, usd } from "./util";
 
 export function OverviewPage() {
-  const { data, error } = useFetch<Overview>("/api/overview");
+  const { data, error } = useFetch<Overview>("/api/economy/us/overview");
   if (error) return <main className="page"><p>Could not load the overview: {error}</p></main>;
   if (!data) return <main className="page"><p className="muted">Loading…</p></main>;
   const quarter = periodLabel(data.period);
@@ -16,7 +19,10 @@ export function OverviewPage() {
           <h1>US financial system, {quarter}</h1>
           <p className="muted">The whole system on one page, what moved in the latest quarter, and where to look next.</p>
         </div>
+        <EconomySwitch />
       </header>
+
+      <WeeklyStrip />
 
       <SystemMapCard />
 
@@ -44,6 +50,8 @@ export function OverviewPage() {
         <Moves moves={data.valuation_changes} kind="valuation" now={data.period} from={data.valuation_changes[0]?.history_from} />
       </section>
 
+      <CountriesCard />
+
       <section className="card tables">
         <div className="scroll-x">
           <table className="table">
@@ -59,7 +67,7 @@ export function OverviewPage() {
               {data.instruments.map((i) => (
                 <tr key={i.id}>
                   <td>
-                    <a href={`#/instrument/${i.id}`}>{i.name}</a>
+                    <a href={`#/us/instrument/${i.id}`}>{i.name}</a>
                     {i.composite && <span className="basis"> total of the tables below it</span>}
                   </td>
                   <td className="num">{i.held === null ? "–" : usd(i.held)}</td>
@@ -83,7 +91,7 @@ export function OverviewPage() {
               {data.sectors.map((s) => (
                 <tr key={s.id}>
                   <td>
-                    <a href={`#/sector/${s.id}`}>{s.name}</a>
+                    <a href={`#/us/sector/${s.id}`}>{s.name}</a>
                   </td>
                   <td className="num">{s.total_assets === null ? "–" : usd(s.total_assets)}</td>
                   <td className="num">{s.total_liabilities === null ? "–" : usd(s.total_liabilities)}</td>
@@ -143,11 +151,11 @@ function Moves({ moves, kind, from, now }: { moves: Move[]; kind: "flow" | "valu
             <tr key={`${move.series}-${move.side}`}>
               <td>
                 <span className="swatch" style={{ background: color(move.group) }} />{" "}
-                {move.sector_id ? <a href={`#/sector/${move.sector_id}`}>{move.sector}</a> : move.sector}
+                {move.sector_id ? <a href={`#/us/sector/${move.sector_id}`}>{move.sector}</a> : move.sector}
               </td>
               <td className="muted">{verb(move, kind)}</td>
               <td>
-                <a href={`#/instrument/${move.instrument_id}`}>{move.instrument}</a>
+                <a href={`#/us/instrument/${move.instrument_id}`}>{move.instrument}</a>
               </td>
               <td className="num strong">{usd(move.amount, true)}</td>
               <td>

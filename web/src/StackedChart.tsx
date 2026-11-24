@@ -17,16 +17,17 @@ interface Props {
   mode: Mode;
   selected?: string;
   ariaLabel: string;
+  events?: { index: number; date: string; title: string }[];
 }
 
 /** Stacked areas over time, in dollars, as a share of the total, or as a share of GDP. Negative values are drawn as zero. */
-export function StackedChart({ series, time, mode, selected, ariaLabel }: Props) {
+export function StackedChart({ series, time, mode, selected, ariaLabel, events }: Props) {
   const { periods, start, end } = time;
   const at = (s: StackSeries, i: number) => Math.max(0, s.values[i] ?? 0);
   const totalAt = (i: number) => series.reduce((sum, s) => sum + at(s, i), 0) || 1;
   const gdp = useContextData()?.gdp.values;
   // Fall back to dollars if GDP is not available for these quarters.
-  if (mode === "gdp" && (!gdp || gdp.length !== periods.length)) mode = "usd";
+  if (mode === "gdp" && (!gdp || gdp.length !== periods.length || !periods[0].includes(":"))) mode = "usd";
   const scaleAt = (i: number) => (mode === "usd" ? 1 : mode === "gdp" ? (gdp![i] ?? NaN) : totalAt(i));
   const value = (s: StackSeries, i: number) => at(s, i) / scaleAt(i) || 0;
 
@@ -50,6 +51,7 @@ export function StackedChart({ series, time, mode, selected, ariaLabel }: Props)
       period={time.period}
       onPeriod={time.choose}
       ariaLabel={ariaLabel}
+      events={events}
       tooltip={(i) =>
         [...series].reverse().map((s) => ({
           key: s.id,

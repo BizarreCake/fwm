@@ -18,7 +18,7 @@ const MIN_SLOT = 18;
 const NODE = 12;
 
 export function SystemMapCard() {
-  const { data, error } = useFetch<SystemMapView>("/api/system-map");
+  const { data, error } = useFetch<SystemMapView>("/api/economy/us/system-map");
   if (error) return <section className="card"><p className="muted">Could not load the system map: {error}</p></section>;
   if (!data) return <section className="card"><p className="muted">Loading the system map…</p></section>;
   return <SystemMap view={data} />;
@@ -189,7 +189,7 @@ function SystemMap({ view }: { view: SystemMapView }) {
       </div>
       <TimeBar time={time} />
       <p className="muted readout" aria-live="polite">
-        {readout} {readoutLink && <a href={`#/instrument/${readoutLink.instrument_id}`}>Open {readoutLink.name.toLowerCase()} →</a>}
+        {readout} {readoutLink && <a href={`#/us/instrument/${readoutLink.instrument_id}`}>Open {readoutLink.name.toLowerCase()} →</a>}
       </p>
       <div ref={ref} className="flow">
         {width > 0 && (
@@ -265,7 +265,7 @@ function SystemMap({ view }: { view: SystemMapView }) {
                 {families.map((family) => (
                   <tr key={family.id}>
                     <td>
-                      <a href={`#/instrument/${family.instrument_id}`}>{family.name}</a>
+                      <a href={`#/us/instrument/${family.instrument_id}`}>{family.name}</a>
                     </td>
                     {view.groups.map((g) => (
                       <td key={g.id} className="num">

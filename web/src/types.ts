@@ -13,6 +13,8 @@ export interface Position extends Measures {
   sector_id: string | null;
   series: string;
   basis: "market" | "book";
+  /** Set when this row is a part of another row in the same group, and so is not added to the group's total. */
+  part_of?: string;
 }
 
 export interface Group extends Measures {
@@ -81,6 +83,8 @@ export interface SectorSummary {
   sector_code: string;
   total_assets: number | null;
   total_liabilities: number | null;
+  /** Set when this sector is a part of another listed sector. */
+  part_of?: string | null;
 }
 
 export interface Move {
@@ -158,4 +162,111 @@ export interface ContextView {
   gdp: { series: string; values: (number | null)[] };
   events: PolicyEvent[];
   notes: { rates: string; gdp: string; events: string };
+}
+
+export interface WeeklyLine {
+  id: string;
+  name: string;
+  /** H.4.1 series behind the line; empty for the computed "other" line. */
+  series: string[];
+  computed: boolean;
+  level: number[];
+  children: WeeklyLine[];
+}
+
+export interface WeeklyView {
+  id: string;
+  name: string;
+  /** Dates, one per week. */
+  periods: string[];
+  assets: { total: number[]; lines: WeeklyLine[] };
+  liabilities: { total: number[]; lines: WeeklyLine[] };
+  /** The latest quarter in the quarterly accounts, and the last week inside it. */
+  quarterly: { period: string; index: number; sector_id: string };
+  events: PolicyEvent[];
+  source: { name: string; url: string; published_at: string | null; latest: string };
+  notes: { basis: string; other: string; counterparties: string };
+}
+
+export interface ForeignHolder {
+  id: string;
+  name: string;
+  region?: string;
+  total: (number | null)[];
+  total_net: (number | null)[];
+  long_term: (number | null)[];
+  long_term_net: (number | null)[];
+  long_term_valuation: (number | null)[];
+  /** Derived: change in bonds and notes not explained by purchases and valuation. */
+  long_term_other: (number | null)[];
+  short_term: (number | null)[];
+  short_term_net: (number | null)[];
+}
+
+export interface ForeignRegion extends ForeignHolder {
+  region: string;
+  /** Held in the region by countries not published separately. */
+  unlisted: (number | null)[];
+  countries: string[];
+}
+
+export interface ForeignView {
+  id: string;
+  name: string;
+  assets: { id: string; name: string }[];
+  has_bills: boolean;
+  /** Months, as YYYY-MM. */
+  periods: string[];
+  total: ForeignHolder;
+  official: ForeignHolder;
+  private: ForeignHolder;
+  regions: ForeignRegion[];
+  countries: ForeignHolder[];
+  memo: ForeignHolder[];
+  quarterly: { instrument_id: string; instrument_name: string; sector_id: string; latest: string; note: string; level: (number | null)[] } | null;
+  source: { name: string; url: string; file: string; latest: string };
+  notes: { custody: string; scope: string; valuation: string; history: string; other: string; missing: string; unallocated?: string };
+}
+
+export interface CountrySummary {
+  id: string;
+  name: string;
+  kind: "country" | "group";
+  region: string | null;
+  /** US securities held there, latest month. */
+  holds_us: number | null;
+  /** Its securities held by US residents, latest month. */
+  held_by_us: number | null;
+}
+
+export interface CountryLine {
+  id: string;
+  name: string;
+  scope: string;
+  page: string | null;
+  total: (number | null)[];
+  total_net: (number | null)[];
+  long_term_valuation: (number | null)[];
+  all_countries: (number | null)[];
+  rank: number | null;
+  ranked_among: number;
+}
+
+export interface CountrySide {
+  lines: CountryLine[];
+  total: (number | null)[];
+  total_net: (number | null)[];
+  long_term_valuation: (number | null)[];
+}
+
+export interface CountryView {
+  id: string;
+  name: string;
+  kind: "country" | "group";
+  region: string | null;
+  periods: string[];
+  holds_us: CountrySide;
+  held_by_us: CountrySide;
+  source: { name: string; url: string; latest: string };
+  notes: { scope: string; custody: string; outward: string; coverage: string; history: string };
 }

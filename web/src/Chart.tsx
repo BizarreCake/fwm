@@ -29,6 +29,8 @@ interface Props {
   onPeriod: (index: number) => void;
   tooltip: (index: number) => TooltipRow[];
   ariaLabel: string;
+  /** Announcements to mark, indexed into `periods`. Defaults to the shared quarterly calendar when the periods are quarters. */
+  events?: { index: number; date: string; title: string }[];
   /** Inset the x scale by half a step so bars centred on a period fit inside the plot. */
   banded?: boolean;
   children: (frame: Frame) => ReactNode;
@@ -60,7 +62,7 @@ export function Chart(props: Props) {
 
   // Quarters with a policy announcement, when the context data covers the same quarters as this chart.
   const context = useContextData();
-  const events = context && context.periods.length === periods.length ? context.events : [];
+  const events = props.events ?? (context && context.periods.length === periods.length && context.periods[0] === periods[0] ? context.events : []);
   const eventQuarters = [...new Set(events.map((e) => e.index))].filter((i) => i >= start && i <= end);
   const hoverEvents = hover === null ? [] : events.filter((e) => e.index === hover);
 

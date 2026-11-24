@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MeasureCharts } from "./MeasureCharts";
 import { StackedChart, type StackSeries } from "./StackedChart";
 import { RatesCard } from "./RatesCard";
@@ -6,7 +6,7 @@ import { TimeBar, useTimeControls } from "./time";
 import { ModeToggle } from "./ModeToggle";
 import type { Mode, SectorSummary, SectorView, SheetNode } from "./types";
 import { useFetch } from "./useFetch";
-import { pct, periodLabel, usd } from "./util";
+import { pct, periodLabel, usd, api, base, economy, economyName, home } from "./util";
 
 type Side = "assets" | "liabilities";
 const SLOTS = 7;
@@ -21,18 +21,18 @@ function displayItems(root: SheetNode): SheetNode[] {
   return root.children.flatMap((child) => (child.children.length ? child.children : [child]));
 }
 
-export function SectorPage({ sectorId }: { sectorId: string }) {
-  const { data, error } = useFetch<SectorView>(`/api/sectors/${sectorId}`);
+export function SectorPage({ sectorId, period }: { sectorId: string; period?: string }) {
+  const { data, error } = useFetch<SectorView>(api(`sectors/${sectorId}`));
   if (error) {
     return (
       <main className="page">
-        <a href="#/">← Overview</a>
+        <a href={home()}>← Overview</a>
         <p>Could not load this sector: {error}</p>
       </main>
     );
   }
   if (!data) return <main className="page"><p className="muted">Loading…</p></main>;
-  return <Sector view={data} />;
+  return <Sector view={data} period={period} />;
 }
 
 /** Colour follows the line, not the selected quarter: the largest lines at the latest quarter get the slots. */
@@ -77,11 +77,17 @@ function index(root: SheetNode | null, into: Map<string, SheetNode>) {
   [...root.children, ...root.memos].forEach((child) => index(child, into));
 }
 
-function Sector({ view }: { view: SectorView }) {
+function Sector({ view, period: linked }: { view: SectorView; period?: string }) {
   const { periods, assets, liabilities, source, notes } = view;
   const time = useTimeControls(periods);
   const period = time.period;
-  const sectors = useFetch<SectorSummary[]>("/api/sectors").data;
+  const show = time.show;
+  useEffect(() => {
+    if (linked) show(linked);
+    // Only when the link changes: the reader is free to move away from it afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked]);
+  const sectors = useFetch<SectorSummary[]>(api("sectors")).data;
 
   const assetColors = useMemo(() => assignColors(assets), [assets]);
   const liabilityColors = useMemo(() => assignColors(liabilities), [liabilities]);
@@ -141,10 +147,10 @@ function Sector({ view }: { view: SectorView }) {
     <main className="page">
       <header className="header">
         <div>
-          <a className="back" href="#/">
+          <a className="back" href={home()}>
             ← Overview
           </a>
-          <h1>{view.name}</h1>
+          <h1>{view.name}{economy() !== "us" && <span className="muted">, {economyName()}</span>}</h1>
           <p className="muted">
             Financial balance sheet, quarterly.{" "}
             {sectors && (
@@ -152,7 +158,7 @@ function Sector({ view }: { view: SectorView }) {
                 className="picker"
                 aria-label="Sector"
                 value={view.id}
-                onChange={(e) => (window.location.hash = `#/sector/${e.target.value}`)}
+                onChange={(e) => (window.location.hash = `${base()}/sector/${e.target.value}`)}
               >
                 {sectors.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -162,6 +168,16 @@ function Sector({ view }: { view: SectorView }) {
               </select>
             )}
           </p>
+          {economy() === "us" && view.id === "S2" && (
+            <p>
+              <a href="#/us/foreign/treasuries">Its holdings of US securities by country, monthly →</a>
+            </p>
+          )}
+          {economy() === "us" && view.id === "S121" && (
+            <p>
+              <a href="#/us/weekly/fed">Weekly balance sheet, more recent than the quarterly accounts →</a>
+            </p>
+          )}
         </div>
         <div className="hero">
           <div className="hero-value">{usd(assets.level[period] ?? 0)}</div>
@@ -198,7 +214,7 @@ function Sector({ view }: { view: SectorView }) {
                 </button>
               </div>
             )}
-            <ModeToggle mode={mode} onChange={setMode} />
+            <ModeToggle mode={mode} onChange={setMode} gdp={economy() === "us"} />
           </div>
         </div>
         <StackedChart
@@ -225,7 +241,7 @@ function Sector({ view }: { view: SectorView }) {
         </div>
       </section>
 
-      <RatesCard time={time} />
+      {economy() === "us" && <RatesCard time={time} />}
 
       <section className="card">
         <div className="card-head">
@@ -233,7 +249,7 @@ function Sector({ view }: { view: SectorView }) {
             <span className="swatch" style={{ background: fill }} />
             {node.name}
           </h2>
-          {node.instrument && <a href={`#/instrument/${node.instrument}`}>Who holds and owes this →</a>}
+          {node.instrument && <a href={`${base()}/instrument/${node.instrument}`}>Who holds and owes this →</a>}
         </div>
         <MeasureCharts name={node.name} measures={node} fill={fill} time={time} />
         <div className="scroll-x">
@@ -245,7 +261,7 @@ function Sector({ view }: { view: SectorView }) {
                 <th className="num">Outstanding</th>
                 <th className="num">Net transactions</th>
                 <th className="num">Valuation &amp; other</th>
-                <th>Z.1 series</th>
+                <th>{economy() === "us" ? "Z.1 series" : "Series"}</th>
               </tr>
             </thead>
             <tbody>
@@ -275,7 +291,7 @@ function Sector({ view }: { view: SectorView }) {
       <footer className="footer muted">
         <p>
           Source: <a href={source.url}>{source.name}</a>, table {source.table}. Latest quarter {periodLabel(source.latest_period)}
-          {source.published_at && <>; release published {source.published_at.slice(0, 10)}</>}.
+          {source.published_at && <>; {economy() === "us" ? "release published" : "downloaded"} {source.published_at.slice(0, 10)}</>}.
         </p>
         <p>{notes.structure}</p>
         <p>{notes.other_change}</p>

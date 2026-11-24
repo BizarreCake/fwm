@@ -1,0 +1,166 @@
+"""Accounting checks on the euro area's financial accounts (ECB quarterly sector accounts)."""
+
+from pathlib import Path
+
+import duckdb
+import pytest
+
+from fwm import euroarea
+
+DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
+
+
+@pytest.fixture(scope="module")
+def con():
+    if not DB_PATH.exists():
+        pytest.skip("no ingested data; run `uv run fwm ingest`")
+    connection = duckdb.connect(str(DB_PATH), read_only=True)
+    if not euroarea.available(connection):
+        pytest.skip("no euro-area data; run `uv run fwm ingest --only ecb`")
+    yield connection
+    connection.close()
+
+
+@pytest.fixture(scope="module")
+def accounts(con):
+    return euroarea.Accounts(con)
+
+
+def test_quarters_run_from_the_start_of_the_euro_without_gaps(accounts):
+    periods = accounts.periods
+    assert periods[0] == "1999:Q1" and len(periods) >= 110
+    for earlier, later in zip(periods, periods[1:]):
+        year, quarter = int(earlier[:4]), int(earlier[-1])
+        assert later == (f"{year + 1}:Q1" if quarter == 4 else f"{year}:Q{quarter + 1}")
+
+
+def test_sectors_add_up_to_the_whole_economy_every_quarter(accounts):
+    for side in ("assets", "liabilities"):
+        whole = accounts.position("S1", side, "F")["level"]
+        parts = [accounts.position(sector_id, side, "F")["level"] for sector_id, _, _ in euroarea.SECTORS]
+        for i, period in enumerate(accounts.periods):
+            assert all(part[i] is not None for part in parts), period
+            assert sum(part[i] for part in parts) == pytest.approx(whole[i], abs=30), (side, period)
+
+
+def test_the_two_parts_of_the_bank_sector_add_up_to_it_once_published(accounts):
+    for side in ("assets", "liabilities"):
+        whole = accounts.position("S12K", side, "F")["level"]
+        parts = [accounts.position(part, side, "F")["level"] for part in ("S121", "S12T")]
+        compared = [i for i in range(len(accounts.periods)) if all(part[i] is not None for part in parts)]
+        assert accounts.periods[compared[0]] == "2015:Q1" and len(compared) >= 46
+        for i in compared:
+            assert sum(part[i] for part in parts) == pytest.approx(whole[i], abs=10)
+
+
+def test_every_balance_sheet_line_equals_its_parts_every_quarter(con):
+    def check(node, where):
+        if node["children"]:
+            for i, total in enumerate(node["level"]):
+                values = [child["level"][i] for child in node["children"]]
+                if total is not None:
+                    assert sum(value or 0.0 for value in values) == pytest.approx(total, abs=20), (where, node["name"], i)
+            for child in node["children"]:
+                check(child, where)
+
+    for sector in euroarea.list_sectors(con):
+        sheet = euroarea.balance_sheet(con, sector["id"])
+        check(sheet["assets"], sector["id"])
+        check(sheet["liabilities"], sector["id"])
+        assert sheet["assets"]["level"][-1] == sector["total_assets"]
+
+
+def test_computed_remainders_are_small(con):
+    for sector in euroarea.list_sectors(con):
+        sheet = euroarea.balance_sheet(con, sector["id"])
+        for side in (sheet["assets"], sheet["liabilities"]):
+            for child in side["children"]:
+                if child["series"] == "computed":
+                    for i, value in enumerate(child["level"]):
+                        if value is not None:
+                            assert abs(value) <= 0.002 * abs(side["level"][i]) + 100, (sector["id"], i)
+
+
+def test_change_in_amount_is_transactions_plus_other_changes(con):
+    for sector_id in ("S1M", "S13", "S12K", "ROW"):
+        sheet = euroarea.balance_sheet(con, sector_id)
+        for node in (sheet["assets"], sheet["liabilities"], *sheet["assets"]["children"]):
+            level, transactions, other = node["level"], node["transactions"], node["other_change"]
+            checked = 0
+            for i in range(1, len(level)):
+                if None not in (level[i], level[i - 1], transactions[i], other[i]):
+                    assert level[i] - level[i - 1] == pytest.approx(transactions[i] + other[i], abs=5), (sector_id, node["name"], i)
+                    checked += 1
+            assert checked >= 100, (sector_id, node["name"])
+
+
+def test_what_is_held_equals_what_is_owed_for_every_instrument(con):
+    """With the rest of the world on both sides, every instrument's holders and issuers match."""
+    for instrument in euroarea.list_instruments(con):
+        view = euroarea.view(con, instrument["id"])
+        held, owed = view["holders"]["level"], view["issuers"]["level"]
+        for i, period in enumerate(view["periods"]):
+            assert held[i] == pytest.approx(owed[i], rel=0.002, abs=200), (instrument["id"], period)
+        assert instrument["holders_total"] == held[-1]
+
+
+def test_groups_cover_every_sector_once_and_parts_are_not_double_counted(con):
+    view = euroarea.view(con, "F3")
+    assert [group["id"] for group in view["holders"]["groups"]] == [g for g in view["group_order"]]
+    for side in (view["holders"], view["issuers"]):
+        whole = [sector["code"] for group in side["groups"] for sector in group["sectors"] if not sector.get("part_of")]
+        assert sorted(whole) == sorted(euroarea.SECTOR_NAMES)
+        for group in side["groups"]:
+            counted = [sector for sector in group["sectors"] if not sector.get("part_of")]
+            assert sum(sector["level"][-1] for sector in counted) == pytest.approx(group["level"][-1], abs=1)
+        assert sum(group["level"][-1] for group in side["groups"]) == pytest.approx(side["level"][-1], abs=1)
+    banks = next(group for group in view["holders"]["groups"] if group["id"] == "banks")
+    assert [sector["code"] for sector in banks["sectors"]] == ["S12K", "S121", "S12T"]
+
+
+def test_rest_of_the_world_mirrors_the_euro_areas_external_position(accounts):
+    abroad = accounts.position("ROW", "assets", "F3")["level"][-1]
+    owed_abroad = accounts.data[("W1", "S1", "liabilities", "F3")]["level"][-1]
+    assert abroad == owed_abroad and abroad > 1_000_000
+
+
+def test_api_serves_the_euro_area_beside_the_us_and_refuses_what_is_us_only(con):
+    from fastapi.testclient import TestClient
+
+    from fwm import api
+
+    client = TestClient(api.app)
+    listed = client.get("/api/economy/ea/sectors").json()
+    assert [row["id"] for row in listed if not row["part_of"]] == list(euroarea.SECTOR_NAMES)
+    assert client.get("/api/economy/ea/sectors/S1M").json()["unit"] == "EUR millions"
+    assert client.get("/api/economy/ea/instruments/F3").json()["economy"] == "ea"
+    assert client.get("/api/economy/ea/sectors/S2").status_code == 404  # a US sector id
+    assert client.get("/api/economy/us/sectors/S12K").status_code == 404  # a euro-area sector id
+    for path in ("overview", "system-map", "weekly/fed", "foreign/treasuries"):
+        assert client.get(f"/api/economy/ea/{path}").status_code == 404, path
+
+
+def test_assistant_tools_read_the_euro_area_in_euro(con):
+    from fwm import tools
+
+    listed = tools.run(con, "list_sectors", {"economy": "ea"})
+    assert listed["unit"].startswith("EUR billions") and listed["link"] == "#/ea"
+    view = euroarea.view(con, "F3")
+    result = tools.run(con, "get_instrument", {"instrument_id": "F3", "economy": "ea", "compare_to": "2022:Q1"})
+    assert result["unit"] == "EUR billions" and result["link"] == f"#/ea/instrument/F3?period={view['periods'][-1]}"
+    assert result["holders"]["total"]["amount"] == pytest.approx(view["holders"]["level"][-1] / 1000, abs=0.06)
+    change = result["holders"]["total"]["change"]
+    assert change["change_in_amount"] == pytest.approx(change["net_transactions"] + change["valuation_and_other"], abs=0.3)
+    banks = next(group for group in result["holders"]["groups"] if group["group_id"] == "banks")
+    assert sum(s["amount"] for s in banks["sectors"] if "part_of" not in s) == pytest.approx(banks["amount"], abs=0.1)
+    series = banks["sectors"][0]["series"]
+    history = tools.run(con, "get_history", {"series": [series], "start": "2025:Q1"})
+    assert history["unit"] == "EUR billions" and history["series"][0]["observations"][-1]["amount"] == banks["sectors"][0]["amount"]
+    sheet = tools.run(con, "get_sector", {"sector_id": "S1M", "economy": "ea"})
+    assert sheet["link"].startswith("#/ea/sector/S1M") and sheet["assets"]["total"]["amount"] > 30_000
+    for bad in ({"series": [series], "share_of_gdp": True}, {"series": [series, "LM263061105.Q"]}):
+        with pytest.raises(tools.ToolError):
+            tools.run(con, "get_history", bad)
+    with pytest.raises(tools.ToolError):
+        tools.run(con, "get_sector", {"sector_id": "S12K"})  # without the economy, this is a US lookup
+    assert tools.run(con, "get_sector", {"sector_id": "S121"})["unit"] == "USD billions"

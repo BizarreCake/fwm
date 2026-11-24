@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FlowDiagram } from "./FlowDiagram";
 import { MeasureCharts } from "./MeasureCharts";
 import { ModeToggle } from "./ModeToggle";
@@ -7,22 +7,22 @@ import { RatesCard } from "./RatesCard";
 import { TimeBar, useTimeControls } from "./time";
 import type { Group, InstrumentSummary, InstrumentView, Mode, SideName, SideView } from "./types";
 import { useFetch } from "./useFetch";
-import { color, pct, periodLabel, usd } from "./util";
+import { color, pct, periodLabel, usd, api, base, economy, economyName, home } from "./util";
 
 const SIDE_TITLE: Record<SideName, string> = { holders: "Holders", issuers: "Issuers" };
 
-export function InstrumentPage({ instrumentId }: { instrumentId: string }) {
-  const { data, error } = useFetch<InstrumentView>(`/api/instruments/${instrumentId}`);
+export function InstrumentPage({ instrumentId, period }: { instrumentId: string; period?: string }) {
+  const { data, error } = useFetch<InstrumentView>(api(`instruments/${instrumentId}`));
   if (error) {
     return (
       <main className="page">
-        <a href="#/">← Overview</a>
+        <a href={home()}>← Overview</a>
         <p>Could not load this instrument: {error}</p>
       </main>
     );
   }
   if (!data) return <main className="page"><p className="muted">Loading…</p></main>;
-  return <Instrument view={data} />;
+  return <Instrument view={data} period={period} />;
 }
 
 function largest(side: SideView): string {
@@ -30,11 +30,17 @@ function largest(side: SideView): string {
   return [...side.groups].sort((a, b) => (b.level[last] ?? 0) - (a.level[last] ?? 0))[0].id;
 }
 
-function Instrument({ view }: { view: InstrumentView }) {
+function Instrument({ view, period: linked }: { view: InstrumentView; period?: string }) {
   const { periods, holders, issuers, discrepancy, source, notes } = view;
   const time = useTimeControls(periods);
   const period = time.period;
-  const instruments = useFetch<InstrumentSummary[]>("/api/instruments").data;
+  const show = time.show;
+  useEffect(() => {
+    if (linked) show(linked);
+    // Only when the link changes: the reader is free to move away from it afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked]);
+  const instruments = useFetch<InstrumentSummary[]>(api("instruments")).data;
   const [selected, setSelected] = useState<{ side: SideName; id: string }>({ side: "holders", id: largest(holders) });
   const [mode, setMode] = useState<Mode>("usd");
 
@@ -94,10 +100,10 @@ function Instrument({ view }: { view: InstrumentView }) {
     <main className="page">
       <header className="header">
         <div>
-          <a className="back" href="#/">
+          <a className="back" href={home()}>
             ← Overview
           </a>
-          <h1>{view.name}</h1>
+          <h1>{view.name}{economy() !== "us" && <span className="muted">, {economyName()}</span>}</h1>
           <p className="muted">
             Who holds it and who owes it, by sector, quarterly.{" "}
             {instruments && (
@@ -105,7 +111,7 @@ function Instrument({ view }: { view: InstrumentView }) {
                 className="picker"
                 aria-label="Instrument"
                 value={view.id}
-                onChange={(e) => (window.location.hash = `#/instrument/${e.target.value}`)}
+                onChange={(e) => (window.location.hash = `${base()}/instrument/${e.target.value}`)}
               >
                 {instruments.map((i) => (
                   <option key={i.id} value={i.id}>
@@ -164,7 +170,7 @@ function Instrument({ view }: { view: InstrumentView }) {
                 </button>
               </div>
             )}
-            <ModeToggle mode={mode} onChange={setMode} />
+            <ModeToggle mode={mode} onChange={setMode} gdp={economy() === "us"} />
           </div>
         </div>
         <StackedChart
@@ -184,14 +190,14 @@ function Instrument({ view }: { view: InstrumentView }) {
         </div>
       </section>
 
-      <RatesCard time={time} />
+      {economy() === "us" && <RatesCard time={time} />}
 
-      <GroupDetail group={group} sideName={sideName} time={time} />
+      <GroupDetail group={group} sideName={sideName} time={time} instrumentId={view.id} />
 
       <footer className="footer muted">
         <p>
           Source: <a href={source.url}>{source.name}</a>, table {source.table}. Latest quarter {periodLabel(source.latest_period)}
-          {source.published_at && <>; release published {source.published_at.slice(0, 10)}</>}. Figures are observed sector aggregates as
+          {source.published_at && <>; {economy() === "us" ? "release published" : "downloaded"} {source.published_at.slice(0, 10)}</>}. Figures are observed sector aggregates as
           published.
         </p>
         <p>{notes.sides}</p>
@@ -202,7 +208,10 @@ function Instrument({ view }: { view: InstrumentView }) {
   );
 }
 
-function GroupDetail({ group, sideName, time }: { group: Group; sideName: SideName; time: ReturnType<typeof useTimeControls> }) {
+// Instruments whose foreign holders are split by country in the Treasury's TIC reports.
+const FOREIGN_PAGE: Record<string, string> = { F3_2: "treasuries", F3_3: "agency", F3_5: "corporate", F51_1: "equities" };
+
+function GroupDetail({ group, sideName, time, instrumentId }: { group: Group; sideName: SideName; time: ReturnType<typeof useTimeControls>; instrumentId: string }) {
   const period = time.period;
   return (
     <section className="card">
@@ -213,6 +222,11 @@ function GroupDetail({ group, sideName, time }: { group: Group; sideName: SideNa
         </h2>
         <p className="muted">as {sideName === "holders" ? "holders" : "issuers"}</p>
       </div>
+      {group.id === "row" && sideName === "holders" && economy() === "us" && FOREIGN_PAGE[instrumentId] && (
+        <p>
+          <a href={`#/us/foreign/${FOREIGN_PAGE[instrumentId]}`}>Which countries: foreign holders by country, monthly →</a>
+        </p>
+      )}
       <MeasureCharts name={group.name} measures={group} fill={color(group.id)} time={time} />
       <div className="scroll-x">
         <table className="table">
@@ -226,7 +240,7 @@ function GroupDetail({ group, sideName, time }: { group: Group; sideName: SideNa
               <th className="num">Amount</th>
               <th className="num">Net transactions</th>
               <th className="num">Valuation &amp; other</th>
-              <th>Z.1 series</th>
+              <th>{economy() === "us" ? "Z.1 series" : "Series"}</th>
             </tr>
           </thead>
           <tbody>
@@ -235,7 +249,8 @@ function GroupDetail({ group, sideName, time }: { group: Group; sideName: SideNa
               .map((sector) => (
                 <tr key={sector.series}>
                   <td title={sector.detail}>
-                    {sector.sector_id ? <a href={`#/sector/${sector.sector_id}`}>{sector.name} →</a> : sector.name}
+                    {sector.part_of && <span className="muted">of which: </span>}
+                    {sector.sector_id ? <a href={`${base()}/sector/${sector.sector_id}`}>{sector.name} →</a> : sector.name}
                   </td>
                   <td className="num">{sector.level[period] === null ? "–" : usd(sector.level[period]!)}</td>
                   <td className="num">{sector.transactions[period] === null ? "–" : usd(sector.transactions[period]!, true)}</td>
