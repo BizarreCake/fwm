@@ -1,0 +1,623 @@
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --text: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --wash: rgba(11, 11, 11, 0.05);
+
+  --c-fed: #2a78d6;
+  --c-row: #eb6834;
+  --c-banks: #1baf7a;
+  --c-mmf: #eda100;
+  --c-funds: #e87ba4;
+  --c-pensions_insurers: #008300;
+  --c-households: #6250d6;
+  --c-other: #898781;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text: #f0efec;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --wash: rgba(255, 255, 255, 0.06);
+
+    --c-fed: #3987e5;
+    --c-row: #d95926;
+    --c-banks: #199e70;
+    --c-mmf: #c98500;
+    --c-funds: #d55181;
+    --c-pensions_insurers: #0ca30c;
+    --c-households: #9085e9;
+    --c-other: #898781;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 2px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+.muted {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.error {
+  color: var(--text);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.hero {
+  text-align: right;
+}
+
+.hero-value {
+  font-size: 48px;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--wash);
+}
+
+button:focus-visible,
+.flow-band:focus-visible {
+  outline: 2px solid var(--c-fed);
+  outline-offset: -2px;
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--wash);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.play {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-width: 84px;
+}
+
+.slider {
+  flex: 1;
+  min-width: 160px;
+  accent-color: var(--text-secondary);
+}
+
+.period {
+  font-weight: 600;
+  min-width: 64px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.split > div {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* Flow diagram */
+.flow svg {
+  display: block;
+}
+
+.flow-band {
+  cursor: pointer;
+  outline: none;
+}
+
+.flow-band:hover path {
+  opacity: 0.75;
+}
+
+.flow-label {
+  fill: var(--text-secondary);
+  font-size: 13px;
+}
+
+.flow-label.on {
+  fill: var(--text);
+  font-weight: 600;
+}
+
+.flow-share {
+  fill: var(--muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Charts */
+.chart {
+  position: relative;
+  width: 100%;
+}
+
+.chart svg {
+  display: block;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.grid {
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+
+.axis {
+  stroke: var(--axis);
+  stroke-width: 1;
+}
+
+.tick {
+  fill: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.marker {
+  stroke: var(--text);
+  stroke-width: 1;
+}
+
+.crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.tooltip {
+  position: absolute;
+  top: 8px;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.tooltip-title {
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip-value {
+  font-weight: 600;
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltip-label {
+  color: var(--text-secondary);
+}
+
+.key {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+}
+
+.row-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.row-button[aria-pressed="true"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Tables */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table caption {
+  text-align: left;
+  color: var(--text-secondary);
+  padding-bottom: 6px;
+}
+
+.table th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--grid);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table tfoot td {
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+.holders tbody tr {
+  cursor: pointer;
+}
+
+.holders tbody tr:hover,
+.holders tbody tr.selected {
+  background: var(--wash);
+}
+
+.holders td:first-child {
+  padding: 2px;
+}
+
+.holders tfoot td:first-child {
+  padding: 6px 8px;
+}
+
+.series {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.basis {
+  font-family: system-ui, sans-serif;
+  color: var(--muted);
+}
+
+/* Detail */
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-x: auto;
+}
+
+.detail-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+@media (max-width: 900px) {
+  .detail-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+figure {
+  margin: 0;
+  min-width: 0;
+}
+
+figcaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend .swatch + .swatch,
+.legend .swatch:not(:first-child) {
+  margin-left: 8px;
+}
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+/* Slot colours for views whose categories are data-driven (sector balance sheets). */
+:root {
+  --s1: var(--c-fed);
+  --s2: var(--c-row);
+  --s3: var(--c-banks);
+  --s4: var(--c-mmf);
+  --s5: var(--c-funds);
+  --s6: var(--c-pensions_insurers);
+  --s7: var(--c-households);
+}
+
+.back {
+  display: inline-block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.picker {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  max-width: 260px;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.split.even {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .split.even {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.scroll-x {
+  overflow-x: auto;
+}
+
+.sheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.sheet-total {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(32px, 1fr) 64px 52px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--grid);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.sheet-row:hover,
+.sheet-row.selected {
+  background: var(--wash);
+}
+
+.sheet-row .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sheet-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.chevron {
+  flex: none;
+  width: 20px;
+  padding: 2px 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.sheet-label {
+  padding: 2px 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--text);
+}
+
+.sheet-label:hover {
+  background: transparent;
+}
+
+.sheet-label[aria-pressed="true"] {
+  font-weight: 600;
+}
+
+.sheet-bar {
+  height: 8px;
+}
+
+.sheet-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  color: var(--text-secondary);
+}
+
+.total-row td {
+  font-weight: 600;
+}
+
+.link {
+  padding: 0;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-align: left;
+}
+
+.link:hover {
+  background: transparent;
+}

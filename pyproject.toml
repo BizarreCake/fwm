@@ -1,0 +1,26 @@
+[project]
+name = "fwm"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Jacob Zhitomirsky", email = "bizarrecake@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=2.0.1",
+    "fastapi>=0.165.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+fwm = "fwm:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+]
