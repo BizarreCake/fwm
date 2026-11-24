@@ -1032,3 +1032,13 @@ table.compare td.compare-bars {
 .compare-bar + .compare-bar {
   margin-top: 2px;
 }
+
+/* Links between economies */
+.pair-pick select {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}

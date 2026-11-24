@@ -17,6 +17,38 @@ export interface Position extends Measures {
   part_of?: string;
 }
 
+export interface LinkCell {
+  level: (number | null)[];
+  missing: string[];
+}
+
+export interface LinkKind {
+  id: string;
+  name: string;
+  source: string;
+  frequency: string;
+  row_label: string;
+  column_label: string;
+  sentence: string;
+  periods: string[];
+  holders: string[];
+  reporting: Record<string, string[]>;
+  matrix: Record<string, Record<string, LinkCell>>;
+}
+
+type ByCurrency = { all: (number | null)[]; usd: (number | null)[]; eur: (number | null)[] };
+
+/** Positions between economies, in USD millions. */
+export interface LinksView {
+  areas: { id: string; name: string; has_pages: boolean }[];
+  columns: string[];
+  column_names: Record<string, string>;
+  kinds: LinkKind[];
+  all_banks: { periods: string[]; areas: Record<string, { claims: ByCurrency; liabilities: ByCurrency }> };
+  source: { name: string; imf: string; bis: string };
+  notes: Record<string, string>;
+}
+
 export interface CompareMeasures {
   native: number[];
   usd: (number | null)[];

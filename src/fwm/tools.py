@@ -15,7 +15,7 @@ from typing import Any
 
 import duckdb
 
-from fwm import compare, context, countries, eacontext, economies, euroarea, euweekly, fedweekly, tic, instruments, overview, sectors, systemmap
+from fwm import compare, context, countries, links, eacontext, economies, euroarea, euweekly, fedweekly, tic, instruments, overview, sectors, systemmap
 
 GAP_CATEGORIES = {
     "counterparty": "Which holder holds which issuer's paper, or who lends to whom. Z.1 has each side's totals only.",
@@ -401,6 +401,94 @@ def compare_economies(con: duckdb.DuckDBPyConnection, period: str | None = None)
         "caveats": [view["notes"]["conversion"], view["notes"]["matching"], view["notes"]["what_it_is"]],
         "link": "#/",
     }
+
+
+def _area(view: dict, given: str) -> str:
+    wanted = given.strip().lower()
+    aliases = {"usa": "us", "united states of america": "us", "eurozone": "ea", "euro zone": "ea", "britain": "uk",
+               "gb": "uk", "cayman": "ky", "caymans": "ky"}
+    for area in view["areas"]:
+        if wanted in (area["id"], area["name"].lower()) or aliases.get(wanted) == area["id"]:
+            return area["id"]
+    raise ToolError(f"No economy {given!r} in the cross-border tables; known: " + ", ".join(f"{a['id']} ({a['name']})" for a in view["areas"])
+                    + ". Other countries appear only inside 'everywhere else'.")
+
+
+def get_cross_border_links(con: duckdb.DuckDBPyConnection, economy: str | None = None, other: str | None = None) -> dict:
+    view = links.view(con)
+    if view is None:
+        raise ToolError("Links between economies are not loaded in this installation.")
+    names = view["column_names"]
+    caveats = [view["notes"]["reading"], view["notes"]["custody"], view["notes"]["not_included"], view["notes"]["euro_area"], view["notes"]["gaps"]]
+    banks = view["all_banks"]
+
+    def all_banks(area: str) -> dict:
+        block = banks["areas"][area]
+        return {side: {"total": _bn(block[side]["all"][-1]), "in_us_dollars": _bn(block[side]["usd"][-1]), "in_euro": _bn(block[side]["eur"][-1])}
+                for side in ("claims", "liabilities")}
+
+    if economy is None:
+        if other is not None:
+            raise ToolError("Give `economy` first; `other` narrows the answer to one pair.")
+        tables = []
+        for kind in view["kinds"]:
+            rows = [{"row": names[holder], **{names[column]: _bn(kind["matrix"][holder][column]["level"][-1])
+                                              for column in view["columns"] if column != holder}} for holder in kind["holders"]]
+            tables.append({"what": kind["name"], "rows_are": kind["row_label"], "columns_are": kind["column_label"],
+                           "source": kind["source"], "period": kind["periods"][-1], "rows": rows})
+        return {
+            "unit": "USD billions; null where the source publishes no country detail",
+            "tables": tables,
+            "all_reporting_banks_worldwide": {
+                "period": banks["periods"][-1],
+                "positions_with_residents_of": {names[area]: all_banks(area) for area in banks["areas"]},
+                "note": view["notes"]["all_banks"] + " Dollar claims on residents outside the United States are the world "
+                        "figure less the United States figure.",
+            },
+            "caveats": caveats,
+            "link": "#/links",
+        }
+
+    a = _area(view, economy)
+    if other is None:
+        out = {"economy": names[a], "unit": "USD billions", "by_kind": []}
+        for kind in view["kinds"]:
+            entry = {"what": kind["name"], "source": kind["source"], "period": kind["periods"][-1]}
+            if a in kind["matrix"]:
+                entry[f"{kind['row_label']} {names[a]}, {kind['column_label'].lower()}"] = {
+                    names[column]: _bn(kind["matrix"][a][column]["level"][-1]) for column in view["columns"] if column != a}
+            entry[f"positions of other economies towards {names[a]}"] = {
+                names[holder]: _bn(kind["matrix"][holder][a]["level"][-1]) for holder in kind["holders"] if holder != a}
+            out["by_kind"].append(entry)
+        out["all_reporting_banks_worldwide"] = {"period": banks["periods"][-1], **all_banks(a), "note": view["notes"]["all_banks"]}
+        return {**out, "caveats": caveats, "link": "#/links"}
+
+    b = _area(view, other)
+    if a == b:
+        raise ToolError("Give two different economies.")
+    by_kind = []
+    for kind in view["kinds"]:
+        periods = kind["periods"]
+        # Year ends, and the latest period if it is not one.
+        at = [i for i, period in enumerate(periods) if period.endswith("Q4")][-12:]
+        if at[-1] != len(periods) - 1:
+            at.append(len(periods) - 1)
+        entry = {"what": kind["name"], "source": kind["source"], "frequency": kind["frequency"], "latest_period": periods[-1], "directions": []}
+        for holder, issuer in ((a, b), (b, a)):
+            cell = kind["matrix"].get(holder, {}).get(issuer)
+            if cell is None or all(value is None for value in cell["level"]):
+                entry["directions"].append({"meaning": kind["sentence"].format(holder=names[holder], issuer=names[issuer], amount="an amount"),
+                                            "amount": None, "why_missing": f"{names[holder]} does not publish this by country."})
+                continue
+            entry["directions"].append({
+                "meaning": kind["sentence"].format(holder=names[holder], issuer=names[issuer], amount="this amount"),
+                "amount": _bn(cell["level"][-1]),
+                "share_of_all_such_positions_abroad_pct": _pct(cell["level"][-1], kind["matrix"][holder]["world"]["level"][-1]),
+                "history": [{"period": periods[i], "amount": _bn(cell["level"][i])} for i in at if cell["level"][i] is not None],
+                **({"latest_leaves_out": cell["missing"]} if cell["missing"] else {}),
+            })
+        by_kind.append(entry)
+    return {"pair": [names[a], names[b]], "unit": "USD billions", "by_kind": by_kind, "caveats": caveats, "link": f"#/links?pair={a}-{b}"}
 
 
 def get_who_holds_whose(con: duckdb.DuckDBPyConnection, instrument_id: str, period: str | None = None,
@@ -888,6 +976,16 @@ REGISTRY: dict[str, tuple[Any, str, dict]] = {
         "for any question that sets the two economies against each other in size or structure. This is the only place "
         "euro amounts are converted. From 1999:Q1.",
         _schema({"period": _PERIOD}, [])),
+    "get_cross_border_links": (get_cross_border_links,
+        "Positions between economies, in US dollars: holdings of each other's equity and fund shares and debt securities "
+        "(IMF portfolio survey, end of June and December, to end-2025), and what banks located in one are owed by and owe to "
+        "residents of the other (BIS, quarterly from 1999). Economies: us, ea (euro area), jp (Japan), uk, cn (China), "
+        "ky (Cayman Islands). With no arguments: every pair, latest, plus all reporting banks' positions with each economy "
+        "split into US dollars and euro (the measure of dollars outside the United States). With `economy`: that economy "
+        "against all the others. With `economy` and `other`: both directions for that pair with year-end history. This is "
+        "the only tool with euro-area or Japanese holdings by counterparty country; it has no sectors, maturities or flows.",
+        _schema({"economy": {"type": "string", "description": "us, ea, jp, uk, cn or ky. Omit for all pairs."},
+                 "other": {"type": "string", "description": "A second economy, for both directions of one pair with history."}}, [])),
     "get_who_holds_whose": (get_who_holds_whose,
         "Euro area only: what each sector holds of each sector's paper, for one instrument in one quarter, as holder and "
         "issuer pairs with amount, share, and that quarter's transactions and valuation change (and the change since "

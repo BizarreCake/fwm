@@ -67,6 +67,12 @@ each instrument, with amounts, transactions and valuation changes. Reach it by p
 list_instruments, get_sector, get_instrument, get_system_map, latest_moves, get_rates_and_gdp (ECB deposit rate, \
 euro area government yields, euro area GDP, and the dollar-euro exchange rate) and get_fed_announcements (which then \
 returns ECB announcements); its series ids work in get_history. \
+Between economies, get_cross_border_links gives who holds whose securities and what banks in one owe and are owed \
+by the other, for the United States, euro area, Japan, United Kingdom, China and Cayman Islands, in US dollars. Use \
+it for any question about one economy's exposure to another, about euro-area or Japanese holdings by country, or \
+about dollars held or lent outside the United States. It places a holding where the issuer or the bank's office is, \
+so say when a figure runs through a financial centre, and say that it leaves out direct investment and central \
+bank reserves. Its portfolio figures are half-yearly and older than the quarterly accounts. \
 For the euro area only, get_who_holds_whose gives what each sector holds of each sector's paper (for example how \
 much government debt banks hold); for the United States that link is not recorded and stays a gap (counterparty). \
 The Eurosystem's weekly balance sheet ({euro_weekly}) comes from get_fed_weekly and get_fed_weekly_history \
@@ -199,6 +205,7 @@ def label(name: str, arguments: dict, result: dict | None) -> str:
         "get_foreign_holders": f"Foreign holders of {str(result.get('asset', 'US securities')).lower()} by country, {result.get('month', 'latest month')}",
         "get_foreign_holder_history": "Foreign holders' history",
         "compare_economies": f"US and euro area side by side, {quarter(result.get('period'))}",
+        "get_cross_border_links": "Links between economies" + (f": {' and '.join(result['pair'])}" if result.get("pair") else ""),
         "get_who_holds_whose": f"Who holds whose {str(result.get('instrument', 'paper')).lower()}, euro area, {quarter(result.get('period'))}",
         "get_country": f"{result.get('country', arguments.get('country', 'Country'))} and the US, {result.get('month', 'latest month')}",
         "flag_data_gap": "Noted a limit of the data",

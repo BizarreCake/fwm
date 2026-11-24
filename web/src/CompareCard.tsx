@@ -81,6 +81,9 @@ export function CompareCard() {
         {section("Outstanding, by instrument", data.instruments)}
         {section("Held by", data.holders)}
       </div>
+      <p>
+        <a href="#/links?pair=us-ea">What each holds of the other, and links with other economies →</a>
+      </p>
       <p className="muted small">
         {data.notes.what_it_is} {data.notes.conversion} {data.notes.matching}
       </p>

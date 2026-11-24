@@ -4,6 +4,7 @@ import { InstrumentPage } from "./InstrumentPage";
 import { OverviewPage } from "./OverviewPage";
 import { WeeklyFedPage } from "./WeeklyFedPage";
 import { ForeignPage } from "./ForeignPage";
+import { LinksPage } from "./LinksPage";
 import { CountryPage } from "./CountryPage";
 import { setEconomy } from "./util";
 import { Chat } from "./Chat";
@@ -64,6 +65,7 @@ function Pages() {
   setEconomy(current);
   const country = path.match(/^#\/country\/([\w-]+)$/);
   if (country) return <CountryPage key={country[1]} countryId={country[1]} period={period} />;
+  if (path === "#/links") return <LinksPage pair={new URLSearchParams(query).get("pair") ?? undefined} />;
   const page = path.match(/^#\/(\w+)\/(\w+)\/([\w]+)$/);
   if (page && page[1] === current) {
     const [, , kind, id] = page;

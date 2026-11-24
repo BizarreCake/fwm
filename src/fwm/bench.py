@@ -137,7 +137,7 @@ def used(name: str, **arguments: Any) -> Check:
 
 _SERIES = re.compile(r"\b[A-Z]{2}\d{9}\.Q\b|\bQSA(?:\.[A-Z0-9_]+){18}")
 _LINK = re.compile(r"\]\((#/[^)\s]*)\)")
-_ROUTE = re.compile(r"^#/(?:$|country/[\w-]+(?:\?[\w=:&%.-]*)?$|us/(?:weekly/fed|foreign/(?:treasuries|agency|corporate|equities))(?:\?[\w=:&%.-]*)?$|ea$|ea/weekly/eurosystem(?:\?[\w=:&%.-]*)?$|(us|ea)/(instrument|sector)/(\w+)(?:\?[\w=:&%.-]*)?$)")
+_ROUTE = re.compile(r"^#/(?:$|country/[\w-]+(?:\?[\w=:&%.-]*)?$|us/(?:weekly/fed|foreign/(?:treasuries|agency|corporate|equities))(?:\?[\w=:&%.-]*)?$|ea$|links(?:\?pair=(?:us|ea|jp|uk|cn|ky)-(?:us|ea|jp|uk|cn|ky))?$|ea/weekly/eurosystem(?:\?[\w=:&%.-]*)?$|(us|ea)/(instrument|sector)/(\w+)(?:\?[\w=:&%.-]*)?$)")
 _WEEKLY_SERIES = re.compile(r"H\.4\.1 (RES[A-Z0-9]+)")
 
 
@@ -184,6 +184,12 @@ def _ea_government_debt(con) -> dict:
     side = tools.get_instrument(con, "F3", compare_to="2019:Q4", economy="ea")["issuers"]
     group = next(g for g in side["groups"] if g["group_id"] == "gov_business")
     return next(s for s in group["sectors"] if s["sector_id"] == "S13")
+
+
+def _link(con: duckdb.DuckDBPyConnection, kind_id: str, holder: str, issuer: str) -> float:
+    from fwm import links
+    kind = next(kind for kind in links.view(con)["kinds"] if kind["id"] == kind_id)
+    return kind["matrix"][holder][issuer]["level"][-1] / 1000
 
 
 def _ea_pair(con, holder: str, issuer: str, instrument_id: str = "F3") -> float:
@@ -318,6 +324,16 @@ QUESTIONS: list[Question] = [
         used("get_who_holds_whose"), in_euro, no_gap]),
     Question("us-who-holds-whose", "How much of US corporate bonds issued by banks is held by pension funds?", [
         gap("counterparty")], "partial"),
+    Question("links-us-ea", "How much do euro area investors hold of US securities, and how much do Americans hold of euro area ones?", [
+        used("get_cross_border_links"),
+        amount("euro area holdings of US equity", lambda con: _link(con, "equity", "ea", "us")),
+        amount("US holdings of euro area equity", lambda con: _link(con, "equity", "us", "ea")), no_gap]),
+    Question("links-japan-us", "How exposed are banks in Japan to the United States?", [
+        used("get_cross_border_links"), amount("claims of banks in Japan on US residents", lambda con: _link(con, "bank_claims", "jp", "us")), no_gap]),
+    Question("links-offshore-dollars", "How many dollars do banks lend to borrowers outside the United States?", [
+        used("get_cross_border_links"), mentions("trillion", "T"), no_gap]),
+    Question("links-germany-japan", "How much do German investors hold of Japanese government bonds?", [
+        gap("entity", "coverage", "instrument")], "partial"),
     Question("ea-us-size", "How big is the euro area's bond market next to the US one?", [
         used("compare_economies"), mentions("gdp"), mentions("exchange rate", "per euro", "converted"), no_gap]),
     Question("ea-ecb-balance-sheet-now", "How large is the ECB's balance sheet right now, and how much has it shrunk from its peak?", [

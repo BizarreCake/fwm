@@ -381,3 +381,22 @@ def test_euro_area_pages_are_in_euro_and_keep_to_their_own_economy(page, base_ur
 def test_no_console_errors(page):
     """Runs last: nothing in the session above logged an error."""
     assert page.errors == []
+
+
+def test_links_between_economies_page(page, base_url):
+    page.goto(f"{base_url}/#/")
+    page.get_by_role("link", name="What each holds of the other, and links with other economies →").click()
+    page.wait_for_selector("table.matrix")
+    assert page.url.endswith("#/links?pair=us-ea") and page.inner_text("h1") == "Links between economies"
+    text = page.inner_text("main")
+    for expected in ("United States and Euro area", "Equity & fund shares", "Bank liabilities", "Every pair", "Cayman Islands",
+                     "dollar claims on residents outside the United States", "€" not in text and "$"):
+        assert expected in text, expected
+    assert page.locator("svg[aria-label*='both directions']").count() == 4
+    # A cell of the matrix picks that pair; the bank tables have no rows for China.
+    page.get_by_role("button", name="Bank claims").click()
+    assert page.locator("table.matrix tbody tr").count() == 6 and "–" in page.locator("table.matrix tbody tr").nth(4).inner_text()
+    page.locator("table.matrix tbody tr").nth(2).locator("button").first.click()
+    page.wait_for_function("document.querySelector('h2')?.innerText.includes('Japan')")
+    assert page.url.endswith("#/links?pair=jp-us") and "Japan and United States" in page.inner_text("main")
+    assert page.locator("select").first.input_value() == "jp"

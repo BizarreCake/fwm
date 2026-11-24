@@ -24,13 +24,20 @@ When a gap here is closed, also update the "What the data cannot say" section of
 - [x] **ECB announcements** — 16 hand-picked events since 2008, each read from its ECB press release. (`events_ea.csv`)
 - [x] **Eurosystem balance sheet, weekly (ECB weekly financial statement, dataset ILM)** — every Friday since January 1999, in euro: securities (those held for monetary policy separately), lending to banks, gold, banknotes, banks' deposits, government deposits, capital. Same page and tools as the weekly Fed data. (`euweekly.py`)
 - [x] **Economies side by side** — amounts outstanding by instrument and holdings by sector group for the US and the euro area, in dollars at the quarter-end ECB reference rate and as a share of each economy's GDP, from 1999. Rows are matched as closely as the two sets of accounts allow; the differences are stated on the card. This is the only place euro amounts are converted. (`compare.py`)
+- [x] **Links between economies (IMF portfolio positions by counterpart economy, formerly CPIS; BIS locational banking statistics)** — in US dollars, for the United States, euro area, Japan, United Kingdom, China and Cayman Islands, with everywhere else as a remainder. Holdings of each other's equity and fund shares and debt securities at the end of June and December (annual before 2013), 2001 to 2025; claims and liabilities of banks located in each economy towards residents of the others, quarterly from 1999; and all reporting banks' positions with each economy split into dollars and euro. Page `#/links`, one assistant tool. (`links.py`, `uv run fwm ingest --only links`, about four minutes, 180 MB of downloads)
+  - The euro area is the sum of 21 members with positions between members removed, at today's membership for every date. Croatia does not report portfolio holdings; eight small members do not report bank positions.
+  - A period is left empty when the members reporting in it stand for under 90% of the usual total, so a missing reporter is not drawn as a fall.
+  - China and the Cayman Islands publish bank positions in total only. The currency of bank positions is published only for all reporting banks together, not by pair.
+  - Securities are placed by the issuer's residence and bank positions by the office's location, so holdings through financial centres show as claims on the centre.
+  - Not included: direct investment, lending by non-banks, derivatives, and reserves by country. No sectors, maturities or flows, though both sources have some of this. No vintages kept.
+  - Only the countries inside those six economies are stored as reporters; other countries are in the downloads but not loaded.
 - [x] **Z.1 vintages** — every release we download is kept in `data/raw/z1/vintages/`. Only one so far.
 
 ## Next
 
 The aim is to explain how money moves between economies, not only inside the US. Economies are chosen by financial weight (US, euro area, Japan, UK, China), and the links between them come first.
 
-1. [ ] **Cross-border links between economies** — BIS international banking statistics (bank claims by country pair, including offshore dollars) and the IMF portfolio survey (securities holdings by country pair).
+1. [ ] **More from the cross-border sources** — any country as a reporter (so country pages can show links with the euro area and others, not only the US), holder sectors and maturities from the portfolio survey, the BIS consolidated statistics (banks by nationality rather than location), and direct investment positions (IMF, dataset DIP).
 2. [ ] **Japan, then the UK, then China** — quarterly flow of funds for the first two (the Bank of Japan's download page responds; its file format has not been examined); China's data is thought to be annual and coarse, to be verified before committing.
 3. [ ] **Bank balance sheets, weekly (H.8)** — loans, deposits, securities, cash. Can reuse the weekly tables, page layout and download reader built for H.4.1 (`ddp.py`).
 4. [ ] **Weekly and monthly figures on the quarterly pages** — the weekly Fed data and monthly country data live on their own pages. The Fed's securities are at face value weekly and at market value in Z.1, so they cannot share a chart without care.

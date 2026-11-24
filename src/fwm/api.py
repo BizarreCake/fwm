@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 
-from fwm import agent, compare, context, countries, eacontext, economies, euroarea, euweekly, fedweekly, instruments, tic, overview, sectors, systemmap
+from fwm import agent, compare, context, countries, eacontext, economies, euroarea, euweekly, fedweekly, instruments, links, tic, overview, sectors, systemmap
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.environ.get("FWM_DB", ROOT / "data" / "fwm.duckdb"))
@@ -230,6 +230,18 @@ def sector_balance_sheet(sector_id: str, economy: str = economies.DEFAULT) -> di
         con.close()
     if view is None:
         raise HTTPException(404, f"No balance sheet for sector {sector_id!r}")
+    return view
+
+
+@app.get("/api/links")
+def links_view() -> dict:
+    con = connect()
+    try:
+        view = links.view(con)
+    finally:
+        con.close()
+    if view is None:
+        raise HTTPException(503, "No data on links between economies. Run `uv run fwm ingest --only links`.")
     return view
 
 

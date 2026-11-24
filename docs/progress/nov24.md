@@ -87,7 +87,22 @@ How it differs from the US side:
 
 Still open for the euro area: member countries, holdings by country, and vintages for the weekly and context series.
 
+## Links between economies
+
+- **Sources.** IMF portfolio positions by counterpart economy (half-yearly, to end-2025) and BIS locational banking
+  statistics (quarterly, to 2026:Q2). Both by country pair, both in US dollars.
+- **Page `#/links`.** One pair in both directions with history, every pair as a table, and dollars and euros in
+  cross-border banking. Reached from the side-by-side card on either overview.
+- **Examples, end-2025.** Euro-area residents hold $5.55T of US equity and fund shares and $3.08T of US debt
+  securities; US residents hold $3.78T and $0.87T of the euro area's. Banks worldwide have $14.1T of dollar claims on
+  residents outside the United States (2026:Q2).
+- **Assistant.** One tool, `get_cross_border_links`. Benchmark questions on it pass live.
+- **Limits.** Six economies only; the euro area is built from members; holdings through financial centres count as
+  claims on the centre; no direct investment, sectors or flows. Country pages still show each country only as seen
+  from the US.
+- Checks: 164 tests pass, 2 skipped as before.
+
 ## Next
 
-1. Links between economies: BIS international banking statistics and the IMF's portfolio survey.
-2. Japan. Only the Bank of Japan's download page has been checked, not the file format.
+1. Japan as a third economy. Only the Bank of Japan's download page has been checked, not the file format.
+2. Any country as a reporter in the cross-border data, so country pages show more than the US view.
