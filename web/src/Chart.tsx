@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useContextData } from "./context";
 import { periodLabel, useWidth, yearTicks } from "./util";
 
 export interface Frame {
@@ -33,7 +34,7 @@ interface Props {
   children: (frame: Frame) => ReactNode;
 }
 
-const MARGIN = { top: 8, right: 12, bottom: 22, left: 48 };
+const MARGIN = { top: 14, right: 12, bottom: 22, left: 48 };
 
 /** Shared time-series frame: axes, selected-period marker, crosshair, tooltip, click/drag to set period. */
 export function Chart(props: Props) {
@@ -56,6 +57,12 @@ export function Chart(props: Props) {
     const i = Math.round((local - MARGIN.left - inset) / step) + start;
     return Math.min(end, Math.max(start, i));
   };
+
+  // Quarters with a policy announcement, when the context data covers the same quarters as this chart.
+  const context = useContextData();
+  const events = context && context.periods.length === periods.length ? context.events : [];
+  const eventQuarters = [...new Set(events.map((e) => e.index))].filter((i) => i >= start && i <= end);
+  const hoverEvents = hover === null ? [] : events.filter((e) => e.index === hover);
 
   const rows = hover === null ? [] : tooltip(hover);
   const tipLeft = hover === null ? 0 : x(hover);
@@ -98,6 +105,9 @@ export function Chart(props: Props) {
               {periods[i].slice(0, 4)}
             </text>
           ))}
+          {eventQuarters.map((i) => (
+            <path key={`event${i}`} d={`M${x(i) - 3.5},3 L${x(i) + 3.5},3 L${x(i)},10 Z`} className="event-mark" />
+          ))}
           {children(frame)}
           {period >= start && period <= end && (
             <line x1={x(period)} x2={x(period)} y1={MARGIN.top} y2={MARGIN.top + plotHeight} className="marker" />
@@ -115,6 +125,11 @@ export function Chart(props: Props) {
               {row.color && <span className="key" style={{ background: row.color }} />}
               <span className="tooltip-value">{row.value}</span>
               <span className="tooltip-label">{row.label}</span>
+            </div>
+          ))}
+          {hoverEvents.map((event) => (
+            <div key={event.date + event.title} className="tooltip-event">
+              ▾ {event.date.slice(5)}: {event.title}
             </div>
           ))}
         </div>

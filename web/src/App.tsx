@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { SectorPage } from "./SectorPage";
 import { InstrumentPage } from "./InstrumentPage";
 import { OverviewPage } from "./OverviewPage";
+import { ContextProvider } from "./context";
 
 function useHash(): string {
   const [hash, setHash] = useState(window.location.hash);
@@ -17,6 +18,14 @@ function useHash(): string {
 }
 
 export function App() {
+  return (
+    <ContextProvider>
+      <Route />
+    </ContextProvider>
+  );
+}
+
+function Route() {
   const hash = useHash();
   const sector = hash.match(/^#\/sector\/([\w]+)$/);
   if (sector) return <SectorPage key={sector[1]} sectorId={sector[1]} />;

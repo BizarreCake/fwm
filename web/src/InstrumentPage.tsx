@@ -3,6 +3,7 @@ import { FlowDiagram } from "./FlowDiagram";
 import { MeasureCharts } from "./MeasureCharts";
 import { ModeToggle } from "./ModeToggle";
 import { StackedChart } from "./StackedChart";
+import { RatesCard } from "./RatesCard";
 import { TimeBar, useTimeControls } from "./time";
 import type { Group, InstrumentSummary, InstrumentView, Mode, SideName, SideView } from "./types";
 import { useFetch } from "./useFetch";
@@ -182,6 +183,8 @@ function Instrument({ view }: { view: InstrumentView }) {
           ))}
         </div>
       </section>
+
+      <RatesCard time={time} />
 
       <GroupDetail group={group} sideName={sideName} time={time} />
 

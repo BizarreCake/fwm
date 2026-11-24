@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { MeasureCharts } from "./MeasureCharts";
 import { StackedChart, type StackSeries } from "./StackedChart";
+import { RatesCard } from "./RatesCard";
 import { TimeBar, useTimeControls } from "./time";
 import { ModeToggle } from "./ModeToggle";
 import type { Mode, SectorSummary, SectorView, SheetNode } from "./types";
@@ -223,6 +224,8 @@ function Sector({ view }: { view: SectorView }) {
           )}
         </div>
       </section>
+
+      <RatesCard time={time} />
 
       <section className="card">
         <div className="card-head">

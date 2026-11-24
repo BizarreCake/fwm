@@ -716,3 +716,25 @@ th.muted {
   min-width: 84px;
   vertical-align: bottom;
 }
+
+.event-mark {
+  fill: var(--text-secondary);
+}
+
+.tooltip-event {
+  margin-top: 4px;
+  max-width: 260px;
+  white-space: normal;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.events p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.event-date {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}

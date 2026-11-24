@@ -1,4 +1,5 @@
 import { Chart } from "./Chart";
+import { useContextData } from "./context";
 import type { TimeControls } from "./time";
 import type { Mode } from "./types";
 import { axisUsd, pct, ticks, usd } from "./util";
@@ -18,20 +19,24 @@ interface Props {
   ariaLabel: string;
 }
 
-/** Stacked areas over time, in dollars or as a share of the total. Negative values are drawn as zero. */
+/** Stacked areas over time, in dollars, as a share of the total, or as a share of GDP. Negative values are drawn as zero. */
 export function StackedChart({ series, time, mode, selected, ariaLabel }: Props) {
   const { periods, start, end } = time;
   const at = (s: StackSeries, i: number) => Math.max(0, s.values[i] ?? 0);
   const totalAt = (i: number) => series.reduce((sum, s) => sum + at(s, i), 0) || 1;
-  const value = (s: StackSeries, i: number) => (mode === "usd" ? at(s, i) : at(s, i) / totalAt(i));
+  const gdp = useContextData()?.gdp.values;
+  // Fall back to dollars if GDP is not available for these quarters.
+  if (mode === "gdp" && (!gdp || gdp.length !== periods.length)) mode = "usd";
+  const scaleAt = (i: number) => (mode === "usd" ? 1 : mode === "gdp" ? (gdp![i] ?? NaN) : totalAt(i));
+  const value = (s: StackSeries, i: number) => at(s, i) / scaleAt(i) || 0;
 
   let max = 1;
-  if (mode === "usd") {
+  if (mode !== "share") {
     max = 0;
-    for (let i = start; i <= end; i++) max = Math.max(max, totalAt(i));
+    for (let i = start; i <= end; i++) max = Math.max(max, series.reduce((sum, s) => sum + value(s, i), 0));
   }
-  const yTicks = mode === "usd" ? ticks(0, max, 4) : [0, 0.25, 0.5, 0.75, 1];
-  const top = mode === "usd" ? Math.max(max, yTicks[yTicks.length - 1]) : 1;
+  const yTicks = mode === "share" ? [0, 0.25, 0.5, 0.75, 1] : ticks(0, max, 4);
+  const top = mode === "share" ? 1 : Math.max(max, yTicks[yTicks.length - 1]);
 
   return (
     <Chart
@@ -50,7 +55,7 @@ export function StackedChart({ series, time, mode, selected, ariaLabel }: Props)
           key: s.id,
           label: s.name,
           color: s.color,
-          value: mode === "usd" ? usd(s.values[i] ?? 0) : pct(at(s, i) / totalAt(i)),
+          value: mode === "usd" ? usd(s.values[i] ?? 0) : pct(value(s, i)),
         }))
       }
     >

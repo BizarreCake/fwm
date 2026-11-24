@@ -49,7 +49,7 @@ export interface InstrumentSummary {
 
 export type SideName = "holders" | "issuers";
 
-export type Mode = "usd" | "share";
+export type Mode = "usd" | "share" | "gdp";
 
 export interface SheetNode {
   series: string;
@@ -129,4 +129,33 @@ export interface SystemMapView {
   groups: { id: string; name: string }[];
   families: Family[];
   notes: { reading: string; sides: string; coverage: string };
+}
+
+export interface PolicyEvent {
+  date: string;
+  period: string;
+  /** Index of the quarter in `periods`. */
+  index: number;
+  kind: string;
+  title: string;
+  detail: string;
+  url: string;
+}
+
+export interface RateSeries {
+  id: string;
+  name: string;
+  short_name: string;
+  /** Quarterly averages, percent per year. */
+  values: (number | null)[];
+  latest: { date: string; value: number };
+}
+
+export interface ContextView {
+  periods: string[];
+  rates: RateSeries[];
+  /** Nominal GDP over the four quarters ending in each quarter, USD millions. */
+  gdp: { series: string; values: (number | null)[] };
+  events: PolicyEvent[];
+  notes: { rates: string; gdp: string; events: string };
 }

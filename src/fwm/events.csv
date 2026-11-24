@@ -1,0 +1,24 @@
+date,kind,title,detail,release
+2008-11-25,balance_sheet,Fed announces first large-scale asset purchases,"Program to buy the debt of the housing agencies and agency mortgage-backed securities.",monetary20081125b
+2008-12-16,rate,Fed cuts its target to 0–0.25%,"The FOMC establishes a target range for the federal funds rate of 0 to 1/4 percent.",monetary20081216b
+2009-03-18,balance_sheet,Fed adds Treasuries to its purchases,"The FOMC decides to purchase up to $300 billion of longer-term Treasury securities and expands agency purchases.",monetary20090318a
+2010-11-03,balance_sheet,Fed announces a second round of purchases,"The FOMC intends to purchase a further $600 billion of longer-term Treasury securities by mid-2011.",monetary20101103a
+2011-09-21,balance_sheet,Fed lengthens the maturity of its holdings,"The FOMC intends to buy $400 billion of longer-dated Treasuries and sell the same amount of short-dated ones.",monetary20110921a
+2012-09-13,balance_sheet,Fed begins open-ended purchases,"The FOMC begins purchasing agency mortgage-backed securities at $40 billion per month.",monetary20120913a
+2013-12-18,balance_sheet,Fed begins reducing its purchases,"The FOMC decides to modestly reduce the pace of its asset purchases beginning in January.",monetary20131218a
+2014-10-29,balance_sheet,Fed ends its asset purchases,"The FOMC decides to conclude its asset purchase program.",monetary20141029a
+2015-12-16,rate,Fed raises its target from the lower bound,"The FOMC raises the target range for the federal funds rate to 1/4 to 1/2 percent.",monetary20151216a
+2017-09-20,balance_sheet,Fed announces balance sheet runoff,"The FOMC will initiate its balance sheet normalization program in October.",monetary20170920a
+2019-07-31,balance_sheet,Fed ends balance sheet runoff,"The FOMC will conclude the reduction of its securities holdings in August, and lowers its target range.",monetary20190731a
+2019-10-11,balance_sheet,Fed begins buying Treasury bills,"The Federal Reserve will purchase Treasury bills at least into the second quarter of 2020 to maintain reserves.",monetary20191011a
+2020-03-15,rate,Fed cuts its target to 0–0.25%,"The FOMC lowers the target range for the federal funds rate to 0 to 1/4 percent.",monetary20200315a
+2020-03-23,balance_sheet,Fed makes its purchases open-ended,"The Federal Reserve will purchase Treasury and agency mortgage-backed securities in the amounts needed to support market functioning.",monetary20200323a
+2021-11-03,balance_sheet,Fed begins reducing its purchases,"The FOMC decides to begin reducing the monthly pace of its net asset purchases.",monetary20211103a
+2022-03-16,rate,Fed raises its target from the lower bound,"The FOMC raises the target range for the federal funds rate to 1/4 to 1/2 percent.",monetary20220316a
+2022-05-04,balance_sheet,Fed announces balance sheet runoff,"The FOMC decides to begin reducing its holdings of Treasury and agency securities on June 1.",monetary20220504a
+2023-03-12,facility,Fed opens emergency funding for banks,"The Federal Reserve Board announces it will make additional funding available to eligible depository institutions.",monetary20230312a
+2024-05-01,balance_sheet,Fed slows balance sheet runoff,"Beginning in June, the FOMC will slow the pace of decline of its securities holdings.",monetary20240501a
+2024-09-18,rate,Fed begins cutting its target,"The FOMC lowers the target range for the federal funds rate by 1/2 percentage point to 4-3/4 to 5 percent.",monetary20240918a
+2025-03-19,balance_sheet,Fed slows balance sheet runoff again,"Beginning in April, the FOMC will further slow the pace of decline of its securities holdings.",monetary20250319a
+2025-10-29,balance_sheet,Fed ends balance sheet runoff,"The FOMC decides to conclude the reduction of its securities holdings on December 1.",monetary20251029a
+2025-12-10,balance_sheet,Fed resumes purchases to maintain reserves,"The FOMC will initiate purchases of shorter-term Treasury securities as needed to maintain an ample supply of reserves, and lowers its target range to 3-1/2 to 3-3/4 percent.",monetary20251210a

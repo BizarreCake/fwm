@@ -15,6 +15,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import email.utils
+import shutil
 import tempfile
 import urllib.request
 import zipfile
@@ -48,7 +49,25 @@ def download(raw_dir: Path) -> dt.datetime | None:
     published = email.utils.parsedate_to_datetime(last_modified) if last_modified else None
     if published:
         (raw_dir / "published_at.txt").write_text(published.isoformat())
+    archive(raw_dir)
     return published
+
+
+def archive(raw_dir: Path) -> Path | None:
+    """Keep a copy of the downloaded release under vintages/, named by its publication date.
+
+    Each Z.1 release revises earlier quarters. Old releases cannot be downloaded later,
+    so every one we see is kept, to make revisions visible in future.
+    """
+    published = _read_published(raw_dir)
+    zip_path = raw_dir / "z1_csv_files.zip"
+    if not published or not zip_path.exists():
+        return None
+    target = raw_dir / "vintages" / f"z1_{published:%Y-%m-%d}.zip"
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(zip_path, target)
+    return target
 
 
 def _read_published(raw_dir: Path) -> dt.datetime | None:
