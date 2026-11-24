@@ -139,9 +139,11 @@ def ingest(raw_dir: Path, db_path: Path) -> dict:
             )
             n_obs = con.execute("SELECT count(*) FROM z1_observations").fetchone()[0]
             n_series = con.execute("SELECT count(DISTINCT series_id) FROM z1_observations").fetchone()[0]
-            from fwm import structure
+            from fwm import overview, structure, systemmap
 
             structure.build(con)
+            overview.build(con)
+            systemmap.build(con)
             conflicts = con.execute(
                 """
                 SELECT count(*) FROM (

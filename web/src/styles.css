@@ -650,3 +650,69 @@ figcaption {
   fill: var(--text-secondary);
   font-size: 12px;
 }
+
+.moves td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.moves td:first-child,
+.moves td:nth-child(3) {
+  white-space: normal;
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.spark {
+  display: block;
+}
+
+td.muted,
+th.muted {
+  color: var(--text-secondary);
+}
+
+/* On narrow screens the table scrolls sideways rather than squeezing names into a few characters per line. */
+.moves td:first-child {
+  min-width: 220px;
+}
+
+.moves td:nth-child(3) {
+  min-width: 190px;
+}
+
+.readout {
+  min-height: 20px;
+}
+
+.small {
+  font-size: 12px;
+}
+
+/* Instrument names sit on top of the bands, so they carry a halo in the surface colour. */
+.map-family {
+  fill: var(--text);
+  font-size: 12px;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.map-family.on {
+  font-weight: 600;
+}
+
+.map-table summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.map-table th {
+  white-space: normal;
+  min-width: 84px;
+  vertical-align: bottom;
+}

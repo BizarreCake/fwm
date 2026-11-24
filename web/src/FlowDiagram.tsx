@@ -29,15 +29,15 @@ interface Band {
 const value = (group: Group, period: number) => Math.max(0, group.level[period] ?? 0);
 
 /** Largest pixels-per-unit at which a side fits, giving every group a slot tall enough for its label. */
-function fit(values: number[], available: number): number {
+export function fit(values: number[], available: number, minSlot = MIN_SLOT, gap = GAP): number {
   const total = values.reduce((a, b) => a + b, 0);
   if (!total) return 0;
-  let scale = (available - GAP * (values.length - 1)) / total;
+  let scale = (available - gap * (values.length - 1)) / total;
   for (let pass = 0; pass < 6; pass++) {
-    const small = values.filter((v) => v * scale < MIN_SLOT);
+    const small = values.filter((v) => v * scale < minSlot);
     const rest = total - small.reduce((a, b) => a + b, 0);
     if (!rest) break;
-    scale = (available - GAP * (values.length - 1) - small.length * MIN_SLOT) / rest;
+    scale = (available - gap * (values.length - 1) - small.length * minSlot) / rest;
   }
   return Math.max(0, scale);
 }

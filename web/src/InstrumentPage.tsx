@@ -15,7 +15,7 @@ export function InstrumentPage({ instrumentId }: { instrumentId: string }) {
   if (error) {
     return (
       <main className="page">
-        <a href="#/">← Treasury securities</a>
+        <a href="#/">← Overview</a>
         <p>Could not load this instrument: {error}</p>
       </main>
     );
@@ -93,6 +93,9 @@ function Instrument({ view }: { view: InstrumentView }) {
     <main className="page">
       <header className="header">
         <div>
+          <a className="back" href="#/">
+            ← Overview
+          </a>
           <h1>{view.name}</h1>
           <p className="muted">
             Who holds it and who owes it, by sector, quarterly.{" "}

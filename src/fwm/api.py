@@ -9,7 +9,7 @@ import duckdb
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
-from fwm import instruments, sectors
+from fwm import instruments, overview, sectors, systemmap
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.environ.get("FWM_DB", ROOT / "data" / "fwm.duckdb"))
@@ -22,6 +22,30 @@ def connect() -> duckdb.DuckDBPyConnection:
     if not DB_PATH.exists():
         raise HTTPException(503, "No data yet. Run `uv run fwm ingest` first.")
     return duckdb.connect(str(DB_PATH), read_only=True)
+
+
+@app.get("/api/overview")
+def overview_view() -> dict:
+    con = connect()
+    try:
+        view = overview.load(con)
+    finally:
+        con.close()
+    if view is None:
+        raise HTTPException(503, "Overview not built yet. Run `uv run fwm ingest --no-download`.")
+    return view
+
+
+@app.get("/api/system-map")
+def system_map() -> dict:
+    con = connect()
+    try:
+        view = systemmap.load(con)
+    finally:
+        con.close()
+    if view is None:
+        raise HTTPException(503, "System map not built yet. Run `uv run fwm ingest --no-download`.")
+    return view
 
 
 @app.get("/api/instruments")

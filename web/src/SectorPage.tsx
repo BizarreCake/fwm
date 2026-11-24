@@ -25,7 +25,7 @@ export function SectorPage({ sectorId }: { sectorId: string }) {
   if (error) {
     return (
       <main className="page">
-        <a href="#/">← Treasury securities</a>
+        <a href="#/">← Overview</a>
         <p>Could not load this sector: {error}</p>
       </main>
     );
@@ -141,7 +141,7 @@ function Sector({ view }: { view: SectorView }) {
       <header className="header">
         <div>
           <a className="back" href="#/">
-            ← Treasury securities
+            ← Overview
           </a>
           <h1>{view.name}</h1>
           <p className="muted">
