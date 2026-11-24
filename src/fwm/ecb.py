@@ -103,6 +103,11 @@ def ingest(raw_dir: Path, db_path: Path) -> dict:
         finally:
             staging.unlink()
         ddp.record_release(con, SOURCE_ID, SOURCE_NAME, SOURCE_URL, fetched, latest)
+        # The overview reads every instrument, so it is computed once here and stored.
+        from fwm import overview, systemmap
+
+        overview.build(con, "ea")
+        systemmap.build(con, "ea")
     finally:
         con.close()
     return {"series": len(series), "observations": len(observations), "latest": latest}

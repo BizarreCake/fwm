@@ -292,6 +292,7 @@ def view(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict | None:
         "holders": holders,
         "issuers": issuers,
         "discrepancy": {"series": "holders less issuers (computed)", "level": gap},
+        "who_to_whom": instrument_id in WHO_TO_WHOM,
         "source": {**accounts.source, "table": f"{instrument_id} {NAMES[instrument_id]}"},
         "notes": {
             "sides": "Holders report this instrument as an asset; issuers owe it as a liability. Both sides include the rest "
@@ -301,5 +302,109 @@ def view(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict | None:
                         "countries. Banks, central banks and money market funds are one sector; central banks are "
                         "published separately only from 2015.",
             "issuers": None,
+        },
+    }
+
+
+# ---- who holds whose paper --------------------------------------------------------
+#
+# For some instruments the ECB publishes each resident sector's position against each
+# resident sector. (instrument page, series code, side the series are reported on, what is covered)
+WHO_TO_WHOM = {
+    "F3": ("F3", "assets", "Debt securities"),
+    "F4": ("F4", "assets", "Loans"),
+    "F2": ("F2M", "liabilities", "Deposits (currency is not included)"),
+    "F51": ("F511", "assets", "Listed shares only (unlisted shares and other equity are not published by counterpart)"),
+    "F52": ("F52", "assets", "Investment fund shares"),
+}
+
+
+def who_to_whom(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict | None:
+    """Amounts each sector holds of each sector's paper: a holder-by-issuer matrix per quarter.
+
+    Positions between resident sectors are published. Positions with the rest of the world
+    are the remainder: a holder's total less what it holds of residents, and an issuer's
+    total less what residents hold of it.
+    """
+    if instrument_id not in WHO_TO_WHOM:
+        return None
+    code, reported_on, covers = WHO_TO_WHOM[instrument_id]
+    accounts = Accounts(con)
+    all_periods = accounts.periods
+    index = {period: i for i, period in enumerate(all_periods)}
+    n = len(all_periods)
+    residents = [sector_id for sector_id, _, _ in SECTORS]
+    rows = con.execute(
+        "SELECT s.sector, s.counterpart_sector, s.measure, s.key, o.period, o.value FROM qsa_series s JOIN qsa_observations o USING (key) "
+        "WHERE s.counterpart_area = 'W2' AND s.instrument = ? AND s.maturity IN ('_Z', 'T') AND s.side = ?", [code, reported_on]
+    ).fetchall()
+    cells: dict[tuple[str, str], dict] = {}
+    for sector, counterpart, measure, key, period, value in rows:
+        if sector not in residents or counterpart not in residents or period not in index:
+            continue
+        # Deposits are reported by the deposit-taker, so the counterpart is the holder.
+        holder, issuer = (sector, counterpart) if reported_on == "assets" else (counterpart, sector)
+        cell = cells.setdefault((holder, issuer), {"series": None, "level": [None] * n, "transactions": [None] * n, "other_change": [None] * n})
+        cell[measure][index[period]] = value
+        if measure == "level":
+            cell["series"] = key
+    if not cells:
+        return None
+    # Start where every published pair has an amount, so that rows and columns can be added up.
+    start = max(next(i for i, value in enumerate(cell["level"]) if value is not None) for cell in cells.values())
+    periods = all_periods
+    m = n
+
+    def cut(values: list) -> list:
+        """Aligned with the instrument page's quarters; empty before the matrix is complete."""
+        return [None] * start + values[start:]
+
+    def remainder(total: dict | None, parts: list[dict], key: str) -> list:
+        if total is None:
+            return [None] * m
+        whole = total[key]
+        return [None if i < start or whole[i] is None else whole[i] - sum(part[key][i] or 0.0 for part in parts) for i in range(m)]
+
+    matrix: dict[str, dict[str, dict]] = {}
+    for (holder, issuer), cell in cells.items():
+        matrix.setdefault(holder, {})[issuer] = {"series": cell["series"], "computed": False,
+                                                 **{key: cut(cell[key]) for key in ("level", "transactions", "other_change")}}
+    for sector_id in residents:
+        held = [matrix.get(sector_id, {}).get(issuer) for issuer in residents]
+        held = [cell for cell in held if cell]
+        total = accounts.position(sector_id, "assets", code)
+        if total is not None:
+            matrix.setdefault(sector_id, {})["ROW"] = {"series": "computed", "computed": True, **{
+                key: remainder(total, held, key) for key in ("level", "transactions", "other_change")}}
+        owed = [matrix.get(holder, {}).get(sector_id) for holder in residents]
+        owed = [cell for cell in owed if cell]
+        total = accounts.position(sector_id, "liabilities", code)
+        if total is not None and owed:
+            matrix.setdefault("ROW", {})[sector_id] = {"series": "computed", "computed": True, **{
+                key: remainder(total, owed, key) for key in ("level", "transactions", "other_change")}}
+    order = [*residents, "ROW"]
+    holders = [sector_id for sector_id in order if sector_id in matrix]
+    # Leave out issuers that never owe anything in this instrument (households issue no securities).
+    issuers = [sector_id for sector_id in order
+               if any(abs(value or 0.0) >= 1 for holder in holders for value in matrix[holder].get(sector_id, {"level": []})["level"])]
+    return {
+        "id": instrument_id,
+        "name": NAMES[instrument_id],
+        "covers": covers,
+        "economy": "ea",
+        "unit": "EUR millions",
+        "periods": periods,
+        "first_period": periods[start],
+        "sectors": {sector_id: {"name": SECTOR_NAMES[sector_id], "group": SECTOR_GROUP[sector_id]} for sector_id in order},
+        "holders": holders,
+        "issuers": issuers,
+        "matrix": matrix,
+        "source": {**accounts.source, "table": f"{code} by counterpart sector"},
+        "notes": {
+            "reading": "Each cell is what the sector in the row holds of what the sector in the column owes. Amounts between "
+                       "resident sectors are published by the ECB.",
+            "rest_of_world": "Rest of the world is the remainder: a holder's total less what it holds of residents, and an "
+                             "issuer's total less what residents hold of it.",
+            "coverage": f"{covers}. Banks, central banks and money market funds are one sector.",
         },
     }

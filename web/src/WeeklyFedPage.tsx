@@ -5,21 +5,23 @@ import { StackedChart } from "./StackedChart";
 import { TimeBar, useTimeControls, type Range, type TimeControls } from "./time";
 import type { Mode, WeeklyLine, WeeklyView } from "./types";
 import { useFetch } from "./useFetch";
-import { axisUsd, periodLabel, ticks, usd } from "./util";
+import { api, axisUsd, base, home, periodLabel, ticks, usd } from "./util";
 
 type Side = "assets" | "liabilities";
 
-// Colour follows the line, in a fixed order per side; the computed "other" lines are gray.
-const SLOT: Record<string, string> = {
-  treasuries: "var(--s1)", mbs: "var(--s2)", agency_debt: "var(--s3)", premiums: "var(--s4)", repo: "var(--s5)",
-  loans: "var(--s6)", swaps: "var(--s7)", other_assets: "var(--muted)",
-  currency: "var(--s1)", reserves: "var(--s2)", reverse_repo: "var(--s3)", tga: "var(--s4)", other_deposits: "var(--s5)",
-  remittances: "var(--s6)", capital: "var(--s7)", other_liabilities: "var(--muted)",
-};
-const HEADLINE = ["reserves", "reverse_repo", "tga"];
+/** Colour follows the line, in the fixed order the statement lists it on its side; the computed "other" lines are gray. */
+function slots(view: WeeklyView): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const side of [view.assets, view.liabilities]) {
+    side.lines.forEach((line, k) => {
+      out[line.id] = line.id.startsWith("other_") && line.series.length === 0 ? "var(--muted)" : `var(--s${(k % 7) + 1})`;
+    });
+  }
+  return out;
+}
 
 function useWeekly() {
-  return useFetch<WeeklyView>("/api/economy/us/weekly/fed");
+  return useFetch<WeeklyView>(api("weekly/central-bank"));
 }
 
 /** On the overview: the newest figures in the system, which are weeks old where the accounts are months old. */
@@ -28,13 +30,13 @@ export function WeeklyStrip() {
   if (!data) return null;
   const last = data.periods.length - 1;
   const anchor = data.quarterly.index;
-  const lines = data.liabilities.lines.filter((line) => HEADLINE.includes(line.id));
-  const tiles = [{ id: "total", name: "Federal Reserve total assets", level: data.assets.total }, ...lines];
+  const lines = data.liabilities.lines.filter((line) => data.headline.includes(line.id));
+  const tiles = [{ id: "total", name: `${data.central_bank} total assets`, level: data.assets.total }, ...lines];
   return (
     <section className="card">
       <div className="card-head">
-        <h2>Since the quarter ended: the Fed's balance sheet on {periodLabel(data.periods[last])}</h2>
-        <a href="#/us/weekly/fed">Weekly balance sheet →</a>
+        <h2>Since the quarter ended: {data.possessive} balance sheet on {periodLabel(data.periods[last])}</h2>
+        <a href={data.page}>Weekly balance sheet →</a>
       </div>
       <div className="tiles">
         {tiles.map((tile) => (
@@ -56,7 +58,7 @@ export function WeeklyFedPage({ period }: { period?: string }) {
   if (error) {
     return (
       <main className="page">
-        <a href="#/">← Overview</a>
+        <a href={home()}>← Overview</a>
         <p>Could not load the weekly balance sheet: {error}</p>
       </main>
     );
@@ -91,7 +93,8 @@ function Weekly({ view, period: linked }: { view: WeeklyView; period?: string })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linked]);
 
-  const [selected, setSelected] = useState("reserves");
+  const [selected, setSelected] = useState(view.default_line);
+  const SLOT = slots(view);
   const [side, setSide] = useState<Side>("liabilities");
   const [mode, setMode] = useState<Mode>("usd");
 
@@ -158,14 +161,14 @@ function Weekly({ view, period: linked }: { view: WeeklyView; period?: string })
     <main className="page">
       <header className="header">
         <div>
-          <a className="back" href="#/">
+          <a className="back" href={home()}>
             ← Overview
           </a>
-          <h1>Federal Reserve, weekly</h1>
+          <h1>{view.name}</h1>
           <p className="muted">
-            Its balance sheet every Wednesday, through {periodLabel(periods[last])}. The quarterly accounts end in{" "}
+            Its balance sheet every {view.weekday}, through {periodLabel(periods[last])}. The quarterly accounts end in{" "}
             {periodLabel(quarterly.period)}:{" "}
-            <a href={`#/us/sector/${quarterly.sector_id}`}>Federal Reserve in the quarterly accounts →</a>
+            <a href={`${base()}/sector/${quarterly.sector_id}`}>{view.central_bank} in the quarterly accounts →</a>
           </p>
         </div>
         <div className="hero">
@@ -201,7 +204,7 @@ function Weekly({ view, period: linked }: { view: WeeklyView; period?: string })
           time={time}
           mode={mode}
           selected={stack.some((s) => s.id === found.top.id) ? found.top.id : undefined}
-          ariaLabel={`Federal Reserve ${side} by line, weekly`}
+          ariaLabel={`${view.central_bank} ${side} by line, weekly`}
           events={view.events}
         />
         <div className="legend-row">
@@ -212,7 +215,7 @@ function Weekly({ view, period: linked }: { view: WeeklyView; period?: string })
             </button>
           ))}
         </div>
-        {side === "liabilities" && <p className="muted small">Negative amounts (deferred remittances) are not drawn in the stack.</p>}
+        {side === "liabilities" && view.id === "fed" && <p className="muted small">Negative amounts (deferred remittances) are not drawn in the stack.</p>}
       </section>
 
       <section className="card">
@@ -222,7 +225,7 @@ function Weekly({ view, period: linked }: { view: WeeklyView; period?: string })
             {found.line.name}
           </h2>
           <p className="muted">
-            {found.line.series.length ? `H.4.1 series ${found.line.series.join(", ")}` : "Computed: the total less the named lines"}
+            {found.line.series.length ? `${view.series_label} ${found.line.series.join(", ")}` : "Computed: the total less the named lines"}
           </p>
         </div>
         <LineCharts line={found.line} fill={fill} time={time} events={view.events} />

@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 
-from fwm import agent, context, countries, economies, fedweekly, instruments, tic, overview, sectors, systemmap
+from fwm import agent, compare, context, countries, eacontext, economies, euroarea, euweekly, fedweekly, instruments, tic, overview, sectors, systemmap
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.environ.get("FWM_DB", ROOT / "data" / "fwm.duckdb"))
@@ -45,11 +45,11 @@ def connect() -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(DB_PATH), read_only=True)
 
 
-@economy_api.get("/overview", dependencies=[Depends(us_only)])
-def overview_view() -> dict:
+@economy_api.get("/overview")
+def overview_view(economy: str = economies.DEFAULT) -> dict:
     con = connect()
     try:
-        view = overview.load(con)
+        view = overview.load(con, economy)
     finally:
         con.close()
     if view is None:
@@ -57,11 +57,11 @@ def overview_view() -> dict:
     return view
 
 
-@economy_api.get("/system-map", dependencies=[Depends(us_only)])
-def system_map() -> dict:
+@economy_api.get("/system-map")
+def system_map(economy: str = economies.DEFAULT) -> dict:
     con = connect()
     try:
-        view = systemmap.load(con)
+        view = systemmap.load(con, economy)
     finally:
         con.close()
     if view is None:
@@ -69,10 +69,14 @@ def system_map() -> dict:
     return view
 
 
-@economy_api.get("/context", dependencies=[Depends(us_only)])
-def context_view() -> dict:
+@economy_api.get("/context")
+def context_view(economy: str = economies.DEFAULT) -> dict:
     con = connect()
     try:
+        if economy == "ea":
+            if not eacontext.available(con):
+                raise HTTPException(503, "Euro-area rates and GDP not loaded. Run `uv run fwm ingest --only ecb`.")
+            return eacontext.view(con)
         return context.view(con)
     finally:
         con.close()
@@ -134,6 +138,19 @@ def chat(request: ChatRequest) -> StreamingResponse:
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
+@economy_api.get("/weekly/central-bank")
+def central_bank_weekly(economy: str = economies.DEFAULT) -> dict:
+    """The economy's central bank balance sheet, weekly: the Federal Reserve or the Eurosystem."""
+    con = connect()
+    try:
+        view = (euweekly if economy == "ea" else fedweekly).view(con)
+    finally:
+        con.close()
+    if view is None:
+        raise HTTPException(503, "Weekly central bank data not loaded yet. Run `uv run fwm ingest`.")
+    return view
+
+
 @economy_api.get("/weekly/fed", dependencies=[Depends(us_only)])
 def fed_weekly() -> dict:
     con = connect()
@@ -181,6 +198,20 @@ def instrument_view(instrument_id: str, economy: str = economies.DEFAULT) -> dic
     return view
 
 
+@economy_api.get("/who-to-whom/{instrument_id}")
+def who_to_whom(instrument_id: str, economy: str = economies.DEFAULT) -> dict:
+    if economy != "ea":
+        raise HTTPException(404, "Positions by counterpart sector are published for the euro area only.")
+    con = connect()
+    try:
+        view = euroarea.who_to_whom(con, instrument_id)
+    finally:
+        con.close()
+    if view is None:
+        raise HTTPException(404, f"No counterpart detail for instrument {instrument_id!r}")
+    return view
+
+
 @economy_api.get("/sectors")
 def sector_list(economy: str = economies.DEFAULT) -> list[dict]:
     con = connect()
@@ -199,6 +230,18 @@ def sector_balance_sheet(sector_id: str, economy: str = economies.DEFAULT) -> di
         con.close()
     if view is None:
         raise HTTPException(404, f"No balance sheet for sector {sector_id!r}")
+    return view
+
+
+@app.get("/api/compare")
+def compare_view() -> dict:
+    con = connect()
+    try:
+        view = compare.view(con)
+    finally:
+        con.close()
+    if view is None:
+        raise HTTPException(503, "Comparison needs the euro area loaded. Run `uv run fwm ingest --only ecb`.")
     return view
 
 

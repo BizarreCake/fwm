@@ -17,20 +17,25 @@ When a gap here is closed, also update the "What the data cannot say" section of
   - Banks, central banks and money market funds are one sector, because that is the only split with history to 1999. Central banks (the Eurosystem) and other banks are separate from 2015 and shown as parts.
   - The rest of the world is read from residents' positions against non-residents, not published as a sector.
   - Derivatives are published net, so have no holders page. Fund shares issued by money market funds sit with banks.
-  - No conversion to dollars, no GDP, interest rates, ECB announcements, weekly ECB balance sheet, system map or ranking of unusual flows. The euro-area overview is two tables.
-  - Who-to-whom detail (which sector holds which sector's paper) is in the download for deposits, debt securities, loans, listed shares and fund shares from 2013:Q4, and is not used yet.
   - Member countries: the same dataset has them; only the euro-area aggregate is loaded.
+- [x] **Euro area overview** — the system map and the latest quarter's unusual flows, largest flows and valuation changes, built the same way as for the US. Central banks and other banks are ranked separately. (`systemmap.py`, `overview.py`)
+- [x] **Who holds whose paper, euro area** — a holder-by-issuer matrix per quarter for debt securities, loans, deposits, listed shares and fund shares, from the ECB's counterpart-sector series. Positions with the rest of the world are computed as the remainder. Debt securities, listed shares and fund shares start in 2013:Q4; loans and deposits in 1999. On the instrument pages, with an assistant tool. The US accounts have nothing like it. (`euroarea.who_to_whom`)
+- [x] **Euro area rates, GDP and exchange rate** — ECB deposit facility rate (daily from 1999), the ECB's AAA government yield curve at 3 months, 2 and 10 years (daily from September 2004), nominal GDP (quarterly from 1995, not seasonally adjusted), and the ECB's dollar reference rate (daily from 1999). (`eacontext.py`)
+- [x] **ECB announcements** — 16 hand-picked events since 2008, each read from its ECB press release. (`events_ea.csv`)
+- [x] **Eurosystem balance sheet, weekly (ECB weekly financial statement, dataset ILM)** — every Friday since January 1999, in euro: securities (those held for monetary policy separately), lending to banks, gold, banknotes, banks' deposits, government deposits, capital. Same page and tools as the weekly Fed data. (`euweekly.py`)
+- [x] **Economies side by side** — amounts outstanding by instrument and holdings by sector group for the US and the euro area, in dollars at the quarter-end ECB reference rate and as a share of each economy's GDP, from 1999. Rows are matched as closely as the two sets of accounts allow; the differences are stated on the card. This is the only place euro amounts are converted. (`compare.py`)
 - [x] **Z.1 vintages** — every release we download is kept in `data/raw/z1/vintages/`. Only one so far.
 
 ## Next
 
 The aim is to explain how money moves between economies, not only inside the US. Economies are chosen by financial weight (US, euro area, Japan, UK, China), and the links between them come first.
 
-1. [ ] **Finish the euro area** — an overview like the US one (system map, unusual flows), who-to-whom from the detail already downloaded, euro-area GDP and ECB policy rates, the Eurosystem's weekly statement, and a common currency for comparing economies (ECB reference exchange rates).
-2. [ ] **Cross-border links between economies** — BIS international banking statistics (bank claims by country pair, including offshore dollars) and the IMF portfolio survey (securities holdings by country pair).
-3. [ ] **Japan, then the UK, then China** — quarterly flow of funds for the first two (the Bank of Japan's download page responds; its file format has not been examined); China's data is thought to be annual and coarse, to be verified before committing.
-4. [ ] **Bank balance sheets, weekly (H.8)** — loans, deposits, securities, cash. Can reuse the weekly tables, page layout and download reader built for H.4.1 (`ddp.py`).
-5. [ ] **Weekly and monthly figures on the quarterly pages** — the weekly Fed data and monthly country data live on their own pages. The Fed's securities are at face value weekly and at market value in Z.1, so they cannot share a chart without care.
+1. [ ] **Cross-border links between economies** — BIS international banking statistics (bank claims by country pair, including offshore dollars) and the IMF portfolio survey (securities holdings by country pair).
+2. [ ] **Japan, then the UK, then China** — quarterly flow of funds for the first two (the Bank of Japan's download page responds; its file format has not been examined); China's data is thought to be annual and coarse, to be verified before committing.
+3. [ ] **Bank balance sheets, weekly (H.8)** — loans, deposits, securities, cash. Can reuse the weekly tables, page layout and download reader built for H.4.1 (`ddp.py`).
+4. [ ] **Weekly and monthly figures on the quarterly pages** — the weekly Fed data and monthly country data live on their own pages. The Fed's securities are at face value weekly and at market value in Z.1, so they cannot share a chart without care.
+
+Smaller things left open on the euro area: member countries (the same ECB datasets have them); holdings by country, which have no euro-area equivalent of TIC loaded; history of the side-by-side comparison as a chart rather than one quarter; and ECB data vintages for the weekly and context series, which are overwritten on each download.
 
 ## Wanted, by the gap it closes
 

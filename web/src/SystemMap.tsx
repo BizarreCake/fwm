@@ -3,7 +3,7 @@ import { fit } from "./FlowDiagram";
 import { TimeBar, useTimeControls } from "./time";
 import type { Family, SideName, SystemMapView } from "./types";
 import { useFetch } from "./useFetch";
-import { color, periodLabel, usd, useWidth } from "./util";
+import { api, base, color, periodLabel, usd, useWidth } from "./util";
 
 type Scope = "debt" | "all";
 type Focus =
@@ -18,7 +18,7 @@ const MIN_SLOT = 18;
 const NODE = 12;
 
 export function SystemMapCard() {
-  const { data, error } = useFetch<SystemMapView>("/api/economy/us/system-map");
+  const { data, error } = useFetch<SystemMapView>(api("system-map"));
   if (error) return <section className="card"><p className="muted">Could not load the system map: {error}</p></section>;
   if (!data) return <section className="card"><p className="muted">Loading the system map…</p></section>;
   return <SystemMap view={data} />;
@@ -189,7 +189,7 @@ function SystemMap({ view }: { view: SystemMapView }) {
       </div>
       <TimeBar time={time} />
       <p className="muted readout" aria-live="polite">
-        {readout} {readoutLink && <a href={`#/us/instrument/${readoutLink.instrument_id}`}>Open {readoutLink.name.toLowerCase()} →</a>}
+        {readout} {readoutLink && <a href={`${base()}/instrument/${readoutLink.instrument_id}`}>Open {readoutLink.name.toLowerCase()} →</a>}
       </p>
       <div ref={ref} className="flow">
         {width > 0 && (
@@ -265,7 +265,7 @@ function SystemMap({ view }: { view: SystemMapView }) {
                 {families.map((family) => (
                   <tr key={family.id}>
                     <td>
-                      <a href={`#/us/instrument/${family.instrument_id}`}>{family.name}</a>
+                      <a href={`${base()}/instrument/${family.instrument_id}`}>{family.name}</a>
                     </td>
                     {view.groups.map((g) => (
                       <td key={g.id} className="num">

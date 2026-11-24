@@ -971,3 +971,64 @@ button:disabled {
 .row-link:hover {
   opacity: 1;
 }
+
+/* Holder-by-issuer matrix */
+table.matrix th[scope="row"] {
+  text-align: left;
+  font-weight: 400;
+  white-space: nowrap;
+}
+table.matrix td.cell {
+  padding: 0;
+}
+table.matrix th,
+table.matrix td {
+  padding-left: 6px;
+  padding-right: 6px;
+  font-size: 12.5px;
+}
+table.matrix thead th {
+  white-space: normal !important;
+  min-width: 62px;
+  vertical-align: bottom;
+}
+.cell-button {
+  width: 100%;
+  padding: 7px 6px;
+  border: 2px solid transparent;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: pointer;
+}
+.cell-button:hover,
+.cell-button:focus-visible {
+  border-color: var(--axis);
+  outline: none;
+}
+.cell-button.on {
+  border-color: var(--text);
+  font-weight: 600;
+}
+.pair-title {
+  margin: 18px 0 6px;
+  font-size: 14px;
+}
+
+/* Economies side by side */
+table.compare td.compare-bars {
+  width: 34%;
+  min-width: 90px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.compare-bar {
+  height: 7px;
+  min-width: 1px;
+  border-radius: 0 3px 3px 0;
+}
+.compare-bar + .compare-bar {
+  margin-top: 2px;
+}

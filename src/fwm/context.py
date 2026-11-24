@@ -85,6 +85,7 @@ def view(con: duckdb.DuckDBPyConnection) -> dict:
             "SELECT series_id, name, short_name, source_series FROM rate_series"
         ).fetchall():
             rates.append({
+                "shown": series_id != "treasury_3m",
                 "id": series_id,
                 "name": name,
                 "short_name": short_name,
@@ -97,6 +98,8 @@ def view(con: duckdb.DuckDBPyConnection) -> dict:
     sources = {source_id: {"name": name, "url": url, "latest": latest_period} for source_id, name, url, latest_period in
                con.execute("SELECT source_id, name, url, latest_period FROM source_release").fetchall()}
     return {
+        "economy": "us",
+        "central_bank": "Fed",
         "periods": labels,
         "rates": rates,
         "gdp": {"series": GDP_SERIES, "unit": "USD millions", "values": gdp(con, labels)},

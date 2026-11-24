@@ -3,8 +3,7 @@ import { useContextData } from "./context";
 import type { TimeControls } from "./time";
 import { periodLabel, ticks } from "./util";
 
-const SHOWN = ["fed_funds", "treasury_2y", "treasury_10y"];
-const COLORS: Record<string, string> = { fed_funds: "var(--s1)", treasury_2y: "var(--s2)", treasury_10y: "var(--s3)" };
+const PALETTE = ["var(--s1)", "var(--s2)", "var(--s3)"];
 const rate = (value: number) => `${value.toFixed(2)}%`;
 
 /** Interest rates on the page's time axis, with the policy events of the selected quarter. */
@@ -12,7 +11,10 @@ export function RatesCard({ time }: { time: TimeControls }) {
   const context = useContextData();
   if (!context || context.rates.length === 0 || context.periods.length !== time.periods.length) return null;
   const { periods, start, end, period } = time;
-  const series = SHOWN.map((id) => context.rates.find((r) => r.id === id)).filter((r) => r !== undefined);
+  const series = context.rates.filter((r) => r.shown).slice(0, PALETTE.length);
+  // Colour follows the role (policy rate, 2-year, 10-year), which is the same in every economy.
+  const COLORS: Record<string, string> = Object.fromEntries(series.map((s, k) => [s.id, PALETTE[k]]));
+  const bank = context.central_bank;
 
   let max = 1;
   for (const s of series) for (let i = start; i <= end; i++) max = Math.max(max, s.values[i] ?? 0);
@@ -26,7 +28,7 @@ export function RatesCard({ time }: { time: TimeControls }) {
   return (
     <section className="card">
       <div className="card-head">
-        <h2>Interest rates and Fed announcements</h2>
+        <h2>Interest rates and {bank} announcements</h2>
         <span className="legend">
           {series.map((s) => (
             <span key={s.id} className="legend-item">
@@ -86,10 +88,10 @@ export function RatesCard({ time }: { time: TimeControls }) {
             <span className="event-date">{previous.date}</span> {previous.title}. <a href={previous.url}>Press release</a>
           </p>
         )}
-        {here.length === 0 && !previous && <p className="muted">The calendar of Fed announcements starts in {context.events[0]?.date.slice(0, 4)}.</p>}
+        {here.length === 0 && !previous && <p className="muted">The calendar of {bank} announcements starts in {context.events[0]?.date.slice(0, 4)}.</p>}
       </div>
       <p className="muted small">
-        {context.notes.rates} ▾ marks on the charts are quarters with a Fed announcement. {context.notes.events}
+        {context.notes.rates} ▾ marks on the charts are quarters with a {bank} announcement. {context.notes.events}
       </p>
     </section>
   );

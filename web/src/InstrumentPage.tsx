@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { FlowDiagram } from "./FlowDiagram";
 import { MeasureCharts } from "./MeasureCharts";
+import { WhoToWhomCard } from "./WhoToWhom";
 import { ModeToggle } from "./ModeToggle";
 import { StackedChart } from "./StackedChart";
 import { RatesCard } from "./RatesCard";
@@ -156,6 +157,8 @@ function Instrument({ view, period: linked }: { view: InstrumentView; period?: s
         {!issuers && notes.issuers && <p className="muted">{notes.issuers}</p>}
       </section>
 
+      {view.who_to_whom && <WhoToWhomCard instrumentId={view.id} time={time} />}
+
       <section className="card">
         <div className="card-head">
           <h2>{SIDE_TITLE[sideName]} over time</h2>
@@ -170,7 +173,7 @@ function Instrument({ view, period: linked }: { view: InstrumentView; period?: s
                 </button>
               </div>
             )}
-            <ModeToggle mode={mode} onChange={setMode} gdp={economy() === "us"} />
+            <ModeToggle mode={mode} onChange={setMode} />
           </div>
         </div>
         <StackedChart
@@ -190,7 +193,7 @@ function Instrument({ view, period: linked }: { view: InstrumentView; period?: s
         </div>
       </section>
 
-      {economy() === "us" && <RatesCard time={time} />}
+      <RatesCard time={time} />
 
       <GroupDetail group={group} sideName={sideName} time={time} instrumentId={view.id} />
 

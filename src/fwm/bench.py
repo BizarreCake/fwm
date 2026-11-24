@@ -16,7 +16,7 @@ from typing import Any
 
 import duckdb
 
-from fwm import agent, tools
+from fwm import agent, euroarea, tools
 
 
 @dataclass
@@ -137,7 +137,7 @@ def used(name: str, **arguments: Any) -> Check:
 
 _SERIES = re.compile(r"\b[A-Z]{2}\d{9}\.Q\b|\bQSA(?:\.[A-Z0-9_]+){18}")
 _LINK = re.compile(r"\]\((#/[^)\s]*)\)")
-_ROUTE = re.compile(r"^#/(?:$|country/[\w-]+(?:\?[\w=:&%.-]*)?$|us/(?:weekly/fed|foreign/(?:treasuries|agency|corporate|equities))(?:\?[\w=:&%.-]*)?$|ea$|(us|ea)/(instrument|sector)/(\w+)(?:\?[\w=:&%.-]*)?$)")
+_ROUTE = re.compile(r"^#/(?:$|country/[\w-]+(?:\?[\w=:&%.-]*)?$|us/(?:weekly/fed|foreign/(?:treasuries|agency|corporate|equities))(?:\?[\w=:&%.-]*)?$|ea$|ea/weekly/eurosystem(?:\?[\w=:&%.-]*)?$|(us|ea)/(instrument|sector)/(\w+)(?:\?[\w=:&%.-]*)?$)")
 _WEEKLY_SERIES = re.compile(r"H\.4\.1 (RES[A-Z0-9]+)")
 
 
@@ -184,6 +184,10 @@ def _ea_government_debt(con) -> dict:
     side = tools.get_instrument(con, "F3", compare_to="2019:Q4", economy="ea")["issuers"]
     group = next(g for g in side["groups"] if g["group_id"] == "gov_business")
     return next(s for s in group["sectors"] if s["sector_id"] == "S13")
+
+
+def _ea_pair(con, holder: str, issuer: str, instrument_id: str = "F3") -> float:
+    return euroarea.who_to_whom(con, instrument_id)["matrix"][holder][issuer]["level"][-1] / 1000
 
 
 def _fed_week(con, line_id: str, date: str | None = None, compare_to: str | None = None) -> dict:
@@ -235,7 +239,7 @@ QUESTIONS: list[Question] = [
         no_gap]),
     Question("mmf-assets", "How big are money market funds in total?", [
         amount("money market fund assets", lambda con: _total(con, "S123")), no_gap]),
-    Question("fed-largest-asset", "What is the Fed's largest asset and how much of its balance sheet is it?", [
+    Question("fed-largest-asset", "In the latest quarterly accounts, what is the Fed's largest asset and how much of its balance sheet is it?", [
         mentions("treasur"),
         percent("Treasury share of Fed assets", lambda con: _line(con, "S121", "assets", "total treasury")["share_pct"], 1.0),
         used("get_sector", sector_id="S121"), no_gap]),
@@ -308,10 +312,24 @@ QUESTIONS: list[Question] = [
     Question("ea-government-debt-since-2020", "How much have euro area governments' debt securities grown since the end of 2019?", [
         amount("change in government debt securities", lambda con: _ea_government_debt(con)["change"]["change_in_amount"], tolerance=0.05),
         in_euro, no_gap]),
+    Question("ea-who-holds-government-debt", "How much euro area government debt do banks hold, and how much is held abroad?", [
+        amount("banks' holdings of government debt securities", lambda con: _ea_pair(con, "S12K", "S13")),
+        amount("rest of the world's holdings of government debt securities", lambda con: _ea_pair(con, "ROW", "S13")),
+        used("get_who_holds_whose"), in_euro, no_gap]),
+    Question("us-who-holds-whose", "How much of US corporate bonds issued by banks is held by pension funds?", [
+        gap("counterparty")], "partial"),
+    Question("ea-us-size", "How big is the euro area's bond market next to the US one?", [
+        used("compare_economies"), mentions("gdp"), mentions("exchange rate", "per euro", "converted"), no_gap]),
+    Question("ea-ecb-balance-sheet-now", "How large is the ECB's balance sheet right now, and how much has it shrunk from its peak?", [
+        amount("Eurosystem total assets, latest week", lambda con: tools.get_fed_weekly(con, economy="ea")["total_assets"]["amount"]),
+        amount("peak total assets", lambda con: tools.get_fed_weekly_history(con, ["total_assets"], "2008-01-04", economy="ea")["lines"][0]["highest_week"]["amount"]),
+        in_euro, no_gap]),
+    Question("ea-rates", "What is the ECB's deposit rate now, and when did it last change?", [
+        mentions("2.5"), mentions("2026"), used("get_rates_and_gdp", economy="ea"), no_gap]),
     Question("ea-germany", "How much do German households hold in deposits?", [
         gap("entity", "coverage")], "partial"),
-    Question("ea-ecb-this-week", "How big is the ECB's balance sheet this week?", [
-        gap("coverage", "frequency", "entity")], "partial"),
+    Question("ea-countries", "Which countries hold the most euro area government debt?", [
+        gap("entity", "coverage")], "partial"),
     Question("ea-us-compare", "Do households hold more of their financial wealth in deposits in the euro area or in the US?", [
         used("get_sector", economy="ea"), mentions("%", "percent", "share"), no_gap]),
     # -- the weekly Federal Reserve balance sheet --

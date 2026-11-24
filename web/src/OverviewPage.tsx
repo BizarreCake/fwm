@@ -1,23 +1,28 @@
 import { SystemMapCard } from "./SystemMap";
 import { EconomySwitch } from "./EconomyPage";
+import { CompareCard } from "./CompareCard";
 import { WeeklyStrip } from "./WeeklyFedPage";
 import { CountriesCard } from "./CountryPage";
 import type { Move, Overview } from "./types";
 import { useFetch } from "./useFetch";
-import { color, periodLabel, usd } from "./util";
+import { api, base, color, economy, economyName, periodLabel, usd } from "./util";
 
 export function OverviewPage() {
-  const { data, error } = useFetch<Overview>("/api/economy/us/overview");
+  const { data, error } = useFetch<Overview>(api("overview"));
   if (error) return <main className="page"><p>Could not load the overview: {error}</p></main>;
   if (!data) return <main className="page"><p className="muted">Loading…</p></main>;
   const quarter = periodLabel(data.period);
+  const us = economy() === "us";
 
   return (
     <main className="page">
       <header className="header">
         <div>
-          <h1>US financial system, {quarter}</h1>
-          <p className="muted">The whole system on one page, what moved in the latest quarter, and where to look next.</p>
+          <h1>{us ? "US" : economyName()} financial system, {quarter}</h1>
+          <p className="muted">
+            The whole system on one page, what moved in the latest quarter, and where to look next.
+            {!us && " Amounts are in euro; nothing is converted."}
+          </p>
         </div>
         <EconomySwitch />
       </header>
@@ -25,6 +30,8 @@ export function OverviewPage() {
       <WeeklyStrip />
 
       <SystemMapCard />
+
+      <CompareCard />
 
       <section className="card">
         <div className="card-head">
@@ -50,7 +57,7 @@ export function OverviewPage() {
         <Moves moves={data.valuation_changes} kind="valuation" now={data.period} from={data.valuation_changes[0]?.history_from} />
       </section>
 
-      <CountriesCard />
+      {us && <CountriesCard />}
 
       <section className="card tables">
         <div className="scroll-x">
@@ -67,7 +74,7 @@ export function OverviewPage() {
               {data.instruments.map((i) => (
                 <tr key={i.id}>
                   <td>
-                    <a href={`#/us/instrument/${i.id}`}>{i.name}</a>
+                    <a href={`${base()}/instrument/${i.id}`}>{i.name}</a>
                     {i.composite && <span className="basis"> total of the tables below it</span>}
                   </td>
                   <td className="num">{i.held === null ? "–" : usd(i.held)}</td>
@@ -90,8 +97,9 @@ export function OverviewPage() {
             <tbody>
               {data.sectors.map((s) => (
                 <tr key={s.id}>
-                  <td>
-                    <a href={`#/us/sector/${s.id}`}>{s.name}</a>
+                  <td style={{ paddingLeft: s.part_of ? 28 : undefined }}>
+                    {s.part_of && <span className="muted">of which: </span>}
+                    <a href={`${base()}/sector/${s.id}`}>{s.name}</a>
                   </td>
                   <td className="num">{s.total_assets === null ? "–" : usd(s.total_assets)}</td>
                   <td className="num">{s.total_liabilities === null ? "–" : usd(s.total_liabilities)}</td>
@@ -106,6 +114,11 @@ export function OverviewPage() {
         <p>{data.notes.unusual}</p>
         <p>{data.notes.valuation}</p>
         <p>{data.notes.coverage}</p>
+        {!us && (
+          <p>
+            Not built for the euro area: holdings by country. Euro amounts are converted to dollars only in the side-by-side card.
+          </p>
+        )}
       </footer>
     </main>
   );
@@ -151,11 +164,11 @@ function Moves({ moves, kind, from, now }: { moves: Move[]; kind: "flow" | "valu
             <tr key={`${move.series}-${move.side}`}>
               <td>
                 <span className="swatch" style={{ background: color(move.group) }} />{" "}
-                {move.sector_id ? <a href={`#/us/sector/${move.sector_id}`}>{move.sector}</a> : move.sector}
+                {move.sector_id ? <a href={`${base()}/sector/${move.sector_id}`}>{move.sector}</a> : move.sector}
               </td>
               <td className="muted">{verb(move, kind)}</td>
               <td>
-                <a href={`#/us/instrument/${move.instrument_id}`}>{move.instrument}</a>
+                <a href={`${base()}/instrument/${move.instrument_id}`}>{move.instrument}</a>
               </td>
               <td className="num strong">{usd(move.amount, true)}</td>
               <td>

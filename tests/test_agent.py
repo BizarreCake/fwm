@@ -72,6 +72,7 @@ def test_every_tool_runs_with_minimal_arguments_and_stays_small(con):
                "get_history": {"series": [series]}, "latest_moves": {"kind": "largest_flows"},
                "get_fed_weekly_history": {"lines": ["reserves"]},
                "get_foreign_holder_history": {"countries": ["Japan"]}, "get_country": {"country": "Japan"},
+               "get_who_holds_whose": {"instrument_id": "F3"},
                "flag_data_gap": {"category": "entity", "explanation": "x"}}
     for name in tools.REGISTRY:
         result = tools.run(con, name, minimal.get(name, {}))

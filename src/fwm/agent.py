@@ -64,11 +64,19 @@ is a gap (coverage).
 - The euro area's financial accounts, from the ECB's quarterly sector accounts: {euro}. The same kind of data as \
 Z.1 for a second economy: each sector's financial assets and liabilities by instrument, and who holds and who owes \
 each instrument, with amounts, transactions and valuation changes. Reach it by passing economy "ea" to list_sectors, \
-list_instruments, get_sector and get_instrument; its series ids work in get_history. Everything else here (weekly \
-central bank data, holdings by country, rates, GDP, announcements, the system map, latest_moves) is for the United \
+list_instruments, get_sector, get_instrument, get_system_map, latest_moves, get_rates_and_gdp (ECB deposit rate, \
+euro area government yields, euro area GDP, and the dollar-euro exchange rate) and get_fed_announcements (which then \
+returns ECB announcements); its series ids work in get_history. \
+For the euro area only, get_who_holds_whose gives what each sector holds of each sector's paper (for example how \
+much government debt banks hold); for the United States that link is not recorded and stays a gap (counterparty). \
+The Eurosystem's weekly balance sheet ({euro_weekly}) comes from get_fed_weekly and get_fed_weekly_history \
+with economy "ea"; a question about the ECB's balance sheet now or recently is answered from it, with its date. \
+Holdings by country are for the United \
 States only, so a euro-area question that needs one of those is a gap (coverage). Three things differ from the US \
-accounts. Amounts are in euro: give them in euro, never convert, and when you set a euro figure beside a dollar one \
-say that they are in different currencies and are not directly comparable in size. Sectors are coarser: banks, \
+accounts. Amounts are in euro: give them in euro and do not convert them yourself. To set the two economies side \
+by side use compare_economies, which converts at the quarter's exchange rate and gives each amount as a share of its \
+own economy's GDP; prefer the share of GDP for comparing size, and say that the dollar figure depends on the exchange \
+rate. Outside that tool, a euro figure beside a dollar one is in a different currency and not directly comparable. Sectors are coarser: banks, \
 central banks and money market funds are one sector, with central banks (the Eurosystem) separate only from 2015. \
 And the euro area is the monetary union as a whole: there is nothing here for Germany, France or any member country. \
 Its rest of the world is everyone outside the euro area, which includes the United States; the two economies' \
@@ -153,7 +161,13 @@ def system_prompt(con: duckdb.DuckDBPyConnection) -> str:
     if euroarea.available(con):
         quarters = euroarea.periods(con)
         euro = f"quarterly, {quarters[0]} to {quarters[-1]}"
-    return SYSTEM.format(first=periods[0], latest=periods[-1], weekly=weekly, foreign=foreign, euro=euro)
+    from fwm import euweekly
+
+    euro_weekly = "not loaded in this installation"
+    if euweekly.available(con):
+        first, last = con.execute("SELECT min(date), max(date) FROM eurosystem_weekly WHERE series_id = ?", [euweekly.TOTAL]).fetchone()
+        euro_weekly = f"every Friday, {first} to {last}"
+    return SYSTEM.format(first=periods[0], latest=periods[-1], weekly=weekly, foreign=foreign, euro=euro, euro_weekly=euro_weekly)
 
 
 def label(name: str, arguments: dict, result: dict | None) -> str:
@@ -184,6 +198,8 @@ def label(name: str, arguments: dict, result: dict | None) -> str:
         "get_fed_weekly_history": "Federal Reserve weekly history",
         "get_foreign_holders": f"Foreign holders of {str(result.get('asset', 'US securities')).lower()} by country, {result.get('month', 'latest month')}",
         "get_foreign_holder_history": "Foreign holders' history",
+        "compare_economies": f"US and euro area side by side, {quarter(result.get('period'))}",
+        "get_who_holds_whose": f"Who holds whose {str(result.get('instrument', 'paper')).lower()}, euro area, {quarter(result.get('period'))}",
         "get_country": f"{result.get('country', arguments.get('country', 'Country'))} and the US, {result.get('month', 'latest month')}",
         "flag_data_gap": "Noted a limit of the data",
     }.get(name, name)

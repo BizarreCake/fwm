@@ -35,7 +35,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "ingest":
-        from fwm import ecb, fedweekly, rates, tic, z1
+        from fwm import eacontext, ecb, euweekly, fedweekly, rates, tic, z1
 
         if args.only in (None, "z1"):
             if not args.no_download:
@@ -63,6 +63,13 @@ def main() -> None:
         if args.only in (None, "ecb"):
             if not args.no_download:
                 ecb.download(RAW_ECB)
+                eacontext.download(RAW_ECB / "context")
+                euweekly.download(RAW_ECB / "weekly")
+            weekly_summary = euweekly.ingest(RAW_ECB / "weekly", DB_PATH)
+            print(f"Loaded {weekly_summary['weeks']:,} weeks of the Eurosystem's balance sheet; latest {weekly_summary['latest']}")
+            context_summary = eacontext.ingest(RAW_ECB / "context", DB_PATH)
+            print(f"Loaded euro-area rates to {context_summary['rates_latest']}, GDP to {context_summary['gdp_latest']}, "
+                  f"dollar exchange rate to {context_summary['fx_latest']}")
             summary = ecb.ingest(RAW_ECB, DB_PATH)
             print(f"Loaded {summary['observations']:,} euro-area observations in {summary['series']:,} series; latest {summary['latest']}")
     elif args.command in ("ask", "bench"):

@@ -20,11 +20,11 @@ import statistics
 
 import duckdb
 
-from fwm import instruments, sectors
+from fwm import economies
 
 WINDOW = 40          # quarters of history a flow is compared with
 MIN_HISTORY = 20     # quarters of history needed to score a flow at all
-MIN_FLOW = 20_000    # USD millions; smaller flows are not reported as notable
+MIN_FLOW = 20_000    # millions of the economy's currency; smaller flows are not reported as notable
 UNUSUAL = 2.5        # standard deviations from the position's own norm
 TOP = 12
 
@@ -54,7 +54,14 @@ def _score(series: list, i: int) -> float | None:
     return (series[i] - statistics.fmean(history)) / spread
 
 
-def compute(con: duckdb.DuckDBPyConnection) -> dict:
+def _key(economy: str) -> str:
+    return "overview" if economy == economies.DEFAULT else f"overview:{economy}"
+
+
+def compute(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) -> dict:
+    sectors, instruments = economies.accounts(economy)
+    euro = economy == "ea"
+    symbol = "€" if euro else "$"
     listed = instruments.list_instruments(con)
     ids = [instrument["id"] for instrument in listed]
     flows: list[dict] = []
@@ -75,14 +82,18 @@ def compute(con: duckdb.DuckDBPyConnection) -> dict:
             "transactions": view["holders"]["transactions"][last],
             "other_change": view["holders"]["other_change"][last],
         })
-        if composite or "miscellaneous" in instrument["name"].lower():
+        if composite or "miscellaneous" in instrument["name"].lower() or instrument["name"].lower().startswith("other accounts"):
             continue  # sums of other tables, and residual categories that mostly carry measurement error
         for side_name in ("holders", "issuers"):
             side = view[side_name]
             if not side:
                 continue
             for group in side["groups"]:
+                # A sector published in parts is ranked by its parts, not also as a whole.
+                split = {position.get("part_of") for position in group["sectors"]} - {None}
                 for position in group["sectors"]:
+                    if position["code"] in split:
+                        continue
                     base = {
                         "instrument_id": instrument["id"],
                         "instrument": instrument["name"],
@@ -123,23 +134,33 @@ def compute(con: duckdb.DuckDBPyConnection) -> dict:
         "notes": {
             "unusual": f"Unusual means the quarter's net transactions are more than {UNUSUAL} standard deviations from "
                        f"that position's own average over the previous {WINDOW // 4} years. Largest first; flows "
-                       f"under ${MIN_FLOW // 1000}B are left out.",
-            "coverage": "Covers each sector's position in each instrument, from the Fed's Z.1 financial accounts. "
+                       f"under {symbol}{MIN_FLOW // 1000}B are left out.",
+            "coverage": "Covers each sector's position in each instrument, from the ECB's quarterly sector accounts. "
+                        "Left out of the rankings: other accounts, which are largely residuals. Central banks and "
+                        "other banks are ranked separately, on their history from 2015. Amounts are in current "
+                        "euro, so \"largest on record\" partly reflects growth in the size of the system."
+                        if euro else
+                        "Covers each sector's position in each instrument, from the Fed's Z.1 financial accounts. "
                         "Left out of the rankings: tables that are sums of other tables, which would count a flow "
                         "twice, and miscellaneous claims, which are largely residuals. Amounts are in current "
                         "dollars, so \"largest on record\" partly reflects growth in the size of the system.",
-            "valuation": "Valuation & other is the change in level minus transactions: mostly price changes, plus "
+            "valuation": "Valuation & other is published by the ECB: mostly price and exchange-rate changes, plus "
+                         "any reclassifications. Holders only."
+                         if euro else
+                         "Valuation & other is the change in level minus transactions: mostly price changes, plus "
                          "any reclassifications. Holders only.",
         },
     }
 
 
-def build(con: duckdb.DuckDBPyConnection) -> None:
+def build(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) -> None:
     con.execute("CREATE TABLE IF NOT EXISTS computed (key VARCHAR PRIMARY KEY, value VARCHAR)")
-    con.execute("DELETE FROM computed WHERE key = 'overview'")
-    con.execute("INSERT INTO computed VALUES ('overview', ?)", [json.dumps(compute(con))])
+    con.execute("DELETE FROM computed WHERE key = ?", [_key(economy)])
+    con.execute("INSERT INTO computed VALUES (?, ?)", [_key(economy), json.dumps(compute(con, economy))])
 
 
-def load(con: duckdb.DuckDBPyConnection) -> dict | None:
-    row = con.execute("SELECT value FROM computed WHERE key = 'overview'").fetchone()
+def load(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) -> dict | None:
+    if not con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'computed'").fetchone()[0]:
+        return None
+    row = con.execute("SELECT value FROM computed WHERE key = ?", [_key(economy)]).fetchone()
     return json.loads(row[0]) if row else None

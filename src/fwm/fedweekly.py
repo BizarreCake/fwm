@@ -155,6 +155,13 @@ def view(con: duckdb.DuckDBPyConnection) -> dict | None:
     return {
         "id": "fed",
         "name": "Federal Reserve, weekly",
+        "central_bank": "Federal Reserve",
+        "possessive": "the Fed's",
+        "weekday": "Wednesday",
+        "series_label": "H.4.1 series",
+        "headline": ["reserves", "reverse_repo", "tga"],
+        "default_line": "reserves",
+        "page": "#/us/weekly/fed",
         "unit": "USD millions",
         "periods": [date.isoformat() for date in dates],
         "assets": side(ASSETS, "assets"),

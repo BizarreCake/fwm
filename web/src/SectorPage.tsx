@@ -173,9 +173,9 @@ function Sector({ view, period: linked }: { view: SectorView; period?: string })
               <a href="#/us/foreign/treasuries">Its holdings of US securities by country, monthly →</a>
             </p>
           )}
-          {economy() === "us" && view.id === "S121" && (
+          {view.id === "S121" && (
             <p>
-              <a href="#/us/weekly/fed">Weekly balance sheet, more recent than the quarterly accounts →</a>
+              <a href={economy() === "us" ? "#/us/weekly/fed" : "#/ea/weekly/eurosystem"}>Weekly balance sheet, more recent than the quarterly accounts →</a>
             </p>
           )}
         </div>
@@ -214,7 +214,7 @@ function Sector({ view, period: linked }: { view: SectorView; period?: string })
                 </button>
               </div>
             )}
-            <ModeToggle mode={mode} onChange={setMode} gdp={economy() === "us"} />
+            <ModeToggle mode={mode} onChange={setMode} />
           </div>
         </div>
         <StackedChart
@@ -241,7 +241,7 @@ function Sector({ view, period: linked }: { view: SectorView; period?: string })
         </div>
       </section>
 
-      {economy() === "us" && <RatesCard time={time} />}
+      <RatesCard time={time} />
 
       <section className="card">
         <div className="card-head">

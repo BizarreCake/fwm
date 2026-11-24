@@ -15,7 +15,7 @@ from typing import Any
 
 import duckdb
 
-from fwm import context, countries, economies, euroarea, fedweekly, tic, instruments, overview, sectors, systemmap
+from fwm import compare, context, countries, eacontext, economies, euroarea, euweekly, fedweekly, tic, instruments, overview, sectors, systemmap
 
 GAP_CATEGORIES = {
     "counterparty": "Which holder holds which issuer's paper, or who lends to whom. Z.1 has each side's totals only.",
@@ -286,7 +286,8 @@ def get_history(con: duckdb.DuckDBPyConnection, series: list[str], start: str | 
         derived = sectors._other_change(level, flow)
         other = [values["other"][k] if values["other"][k] is not None else derived[k] for k in range(len(periods))]
         described = f"{euroarea.ALL_NAMES.get(parts[5], parts[5])}: {euroarea.NAMES.get(parts[10], parts[10]).lower()}, " \
-                    f"{'assets' if parts[8] == 'A' else 'liabilities'}" + (", against the rest of the world" if parts[4] == "W1" else "")
+                    f"{'assets' if parts[8] == 'A' else 'liabilities'}" + (", against the rest of the world" if parts[4] == "W1" else "") \
+                    + (f", against {euroarea.ALL_NAMES.get(parts[6], parts[6]).lower()}" if parts[4] == "W2" else "")
         out.append({"series": series_id, "description": described,
                     "basis": "market" if parts[10].startswith(euroarea.MARKET_VALUED) else "book",
                     "observations": _history_rows(periods, picks, level, flow, other, None)})
@@ -315,17 +316,20 @@ def get_history(con: duckdb.DuckDBPyConnection, series: list[str], start: str | 
     }
 
 
-def latest_moves(con: duckdb.DuckDBPyConnection, kind: str = "unusual_flows") -> dict:
+def latest_moves(con: duckdb.DuckDBPyConnection, kind: str = "unusual_flows", economy: str = economies.DEFAULT) -> dict:
     if kind not in ("unusual_flows", "largest_flows", "valuation_changes"):
         raise ToolError("kind must be unusual_flows, largest_flows or valuation_changes")
-    view = overview.load(con) or overview.compute(con)
+    e = _economy(con, economy)
+    view = overview.load(con, economy) or overview.compute(con, economy)
+    symbol = "€" if economy == "ea" else "$"
     return {
+        "economy": e["name"],
         "period": view["period"],
         "kind": kind,
-        "unit": "USD billions",
+        "unit": e["unit"],
         "definition": {
             "unusual_flows": "Net transactions more than 2.5 standard deviations from that position's own average "
-                             "over the previous ten years and at least $20B, largest first. Current dollars.",
+                             f"over the previous ten years and at least {symbol}20B, largest first. Current prices.",
             "largest_flows": "Largest net transactions by absolute size.",
             "valuation_changes": "Largest changes in holdings that were not transactions (mostly price changes).",
         }[kind],
@@ -333,16 +337,18 @@ def latest_moves(con: duckdb.DuckDBPyConnection, kind: str = "unusual_flows") ->
             {"sector": move["sector"], "sector_id": move["sector_id"], "side": move["side"],
              "instrument": move["instrument"], "instrument_id": move["instrument_id"], "series": move["series"],
              "amount": _bn(move["amount"]), "amount_outstanding": _bn(move["level"]),
-             "standard_deviations_from_norm": round(move["score"], 1), "largest_since": move["largest_since"]}
+             "standard_deviations_from_norm": None if move["score"] is None else round(move["score"], 1),
+             "largest_since": move["largest_since"]}
             for move in view[kind]
         ],
         "only_available_for": "the latest quarter",
-        "link": "#/",
+        "link": e["home"],
     }
 
 
-def get_system_map(con: duckdb.DuckDBPyConnection, period: str | None = None) -> dict:
-    view = systemmap.load(con) or systemmap.compute(con)
+def get_system_map(con: duckdb.DuckDBPyConnection, period: str | None = None, economy: str = economies.DEFAULT) -> dict:
+    e = _economy(con, economy)
+    view = systemmap.load(con, economy) or systemmap.compute(con, economy)
     i = _index(view["periods"], period)
     names = {group["id"]: group["name"] for group in view["groups"]}
 
@@ -350,8 +356,9 @@ def get_system_map(con: duckdb.DuckDBPyConnection, period: str | None = None) ->
         return {names[g]: _bn(v[i]) for g, v in values.items() if abs(v[i]) >= 50}
 
     return {
+        "economy": e["name"],
         "period": view["periods"][i],
-        "unit": "USD billions",
+        "unit": e["unit"],
         "families": [
             {"family": family["name"], "instrument_id": family["instrument_id"],
              "owed_by": row(family["issuers"]), "held_by": row(family["holders"])}
@@ -359,12 +366,106 @@ def get_system_map(con: duckdb.DuckDBPyConnection, period: str | None = None) ->
         ],
         "reading": view["notes"]["reading"],
         "not_covered": view["notes"]["coverage"],
+        "link": e["home"],
+    }
+
+
+def compare_economies(con: duckdb.DuckDBPyConnection, period: str | None = None) -> dict:
+    view = compare.view(con)
+    if view is None:
+        raise ToolError("Comparing economies needs the euro area accounts, which are not loaded in this installation.")
+    periods = view["periods"]
+    i = _index(periods, period)
+    names = {economy["id"]: economy["name"] for economy in view["economies"]}
+
+    def cell(measures: dict, economy: str) -> dict:
+        usd, share = measures["usd"][i], measures["pct_of_gdp"][i]
+        out = {"usd_billions": _bn(usd), "pct_of_own_gdp": None if share is None else round(share)}
+        if economy == "ea":
+            out["eur_billions"] = _bn(measures["native"][i])
+        return out
+
+    def rows(section: list[dict]) -> list[dict]:
+        return [{"row": row["name"], **{names[e]: cell(row[e], e) for e in names}} for row in section]
+
+    return {
+        "period": periods[i],
+        "usd_per_eur": view["usd_per_eur"][i],
+        "gdp_over_four_quarters": {names[e]: {"usd_billions": _bn(view["gdp"][e]["usd"][i]),
+                                             **({"eur_billions": _bn(view["gdp"][e]["native"][i])} if e == "ea" else {})} for e in names},
+        "total_of_instruments_below": {names[e]: cell(view["total"][e], e) for e in names},
+        "outstanding_by_instrument": rows(view["instruments"]),
+        "held_by": rows(view["holders"]),
+        "reading": "pct_of_own_gdp compares size without any exchange rate and is the better measure of how large "
+                   "something is for its economy. usd_billions shows absolute scale and moves with the exchange rate.",
+        "caveats": [view["notes"]["conversion"], view["notes"]["matching"], view["notes"]["what_it_is"]],
         "link": "#/",
     }
 
 
-def get_rates_and_gdp(con: duckdb.DuckDBPyConnection, start: str | None = None, end: str | None = None) -> dict:
-    view = context.view(con)
+def get_who_holds_whose(con: duckdb.DuckDBPyConnection, instrument_id: str, period: str | None = None,
+                        compare_to: str | None = None) -> dict:
+    """Euro area only: what each sector holds of each sector's paper."""
+    _economy(con, "ea")
+    view = euroarea.who_to_whom(con, instrument_id)
+    if view is None:
+        raise ToolError(f"No counterpart detail for {instrument_id!r}. Available: {', '.join(euroarea.WHO_TO_WHOM)}.")
+    periods = view["periods"]
+    i = _index(periods, period)
+    j = _index(periods, compare_to, "compare_to") if compare_to else None
+    first = periods.index(view["first_period"])
+    if min(i, j if j is not None else i) < first:
+        raise ToolError(f"Counterpart detail for this instrument starts in {view['first_period']}.")
+    names = {sector_id: info["name"] for sector_id, info in view["sectors"].items()}
+    cells = [(holder, issuer, cell) for holder, row in view["matrix"].items() for issuer, cell in row.items()
+             if cell["level"][i] is not None]
+    total = sum(cell["level"][i] for _, _, cell in cells)
+    pairs = [
+        {"holder": names[holder], "holder_id": holder, "issuer": names[issuer], "issuer_id": issuer,
+         "series": cell["series"], **({"computed_as_remainder": True} if cell["computed"] else {}), **_measures(cell, i, j, total)}
+        for holder, issuer, cell in sorted(cells, key=lambda c: -abs(c[2]["level"][i]))
+        if abs(cell["level"][i]) >= 1000
+    ][:30]
+
+    def totals(position: int) -> list[dict]:
+        sums: dict[str, float] = {}
+        for cell in cells:
+            sums[cell[position]] = sums.get(cell[position], 0.0) + cell[2]["level"][i]
+        return [{"sector": names[s], "sector_id": s, "amount": _bn(v), "share_pct": _pct(v, total)}
+                for s, v in sorted(sums.items(), key=lambda kv: -kv[1])]
+
+    return {
+        "instrument": view["name"],
+        "instrument_id": view["id"],
+        "covers": view["covers"],
+        "economy": "Euro area",
+        **_span(i, j, periods),
+        "unit": "EUR billions",
+        "reading": "Each pair is what the holder holds of what the issuer owes. share_pct is of the whole instrument. "
+                   "The 30 largest pairs are listed; by_holder and by_issuer cover everything.",
+        "total": _bn(total),
+        "by_holder": totals(0),
+        "by_issuer": totals(1),
+        "pairs": pairs,
+        "notes": [view["notes"]["rest_of_world"], view["notes"]["coverage"]],
+        "source": view["source"]["table"],
+        "link": f"#/ea/instrument/{view['id']}?period={periods[i]}",
+    }
+
+
+def _context(con: duckdb.DuckDBPyConnection, economy: str):
+    _economy(con, economy)
+    if economy == "ea":
+        if not eacontext.available(con):
+            raise ToolError("Euro-area rates, GDP and announcements are not loaded in this installation.")
+        return eacontext
+    return context
+
+
+def get_rates_and_gdp(con: duckdb.DuckDBPyConnection, start: str | None = None, end: str | None = None,
+                      economy: str = economies.DEFAULT) -> dict:
+    view = _context(con, economy).view(con)
+    euro = economy == "ea"
     periods = view["periods"]
     i = _index(periods, end, "end")
     j = _index(periods, start, "start") if start else max(0, i - 12)
@@ -374,23 +475,32 @@ def get_rates_and_gdp(con: duckdb.DuckDBPyConnection, start: str | None = None, 
         raise ToolError("Ask for at most 80 quarters at a time")
     return {
         "rates_unit": "percent per year, quarterly average of daily rates",
-        "gdp_unit": "USD billions, nominal, over the four quarters ending in that quarter",
+        "gdp_unit": f"{'EUR' if euro else 'USD'} billions, nominal, over the four quarters ending in that quarter",
+        "rates": {rate["id"]: rate["name"] for rate in view["rates"]},
         "quarters": [
             {"period": periods[k], **{rate["id"]: rate["values"][k] for rate in view["rates"]},
-             "gdp": _bn(view["gdp"]["values"][k])}
+             "gdp": _bn(view["gdp"]["values"][k]),
+             **({"usd_per_eur_at_quarter_end": view["fx"]["values"][k]} if euro else {})}
             for k in range(j, i + 1)
         ],
         "latest_daily": {rate["id"]: rate["latest"] for rate in view["rates"]},
-        "source": "Federal Reserve H.15 (rates); Z.1 series " + view["gdp"]["series"] + " (GDP)",
+        **({"policy_rate_changes": eacontext.policy_changes(con),
+            "policy_rate_changes_note": "The ten most recent changes in the deposit facility rate, by the day each took "
+                                        "effect (a few days after the decision was announced)."} if euro else {}),
+        "source": ("ECB: key interest rates, euro area AAA government yield curve, national accounts series "
+                   + view["gdp"]["series"] + ", reference exchange rate") if euro
+                  else "Federal Reserve H.15 (rates); Z.1 series " + view["gdp"]["series"] + " (GDP)",
     }
 
 
-def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = None, end: str | None = None) -> dict:
-    periods = context.periods(con)
+def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = None, end: str | None = None,
+                          economy: str = economies.DEFAULT) -> dict:
+    source = _context(con, economy)
+    periods = euroarea.periods(con) if economy == "ea" else context.periods(con)
     i = _index(periods, end, "end") if end else None
     j = _index(periods, start, "start") if start else None
     events = []
-    for event in context.load_events():
+    for event in source.load_events():
         k = periods.index(event["period"]) if event["period"] in periods else None
         if k is None and (i is not None or j is not None):
             # After the latest quarter of accounts: include only if no end bound excludes it.
@@ -399,7 +509,16 @@ def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = No
         if k is not None and ((i is not None and k > i) or (j is not None and k < j)):
             continue
         events.append({key: event[key] for key in ("date", "period", "kind", "title", "detail", "url")})
+    if economy == "ea":
+        return {
+            "central_bank": "European Central Bank",
+            "events": events,
+            "coverage": "A hand-curated calendar of major ECB announcements from late 2008: rate turning points, asset "
+                        "purchase and runoff decisions, and lending operations for banks. Not every Governing Council "
+                        "meeting, and nothing from governments or other central banks.",
+        }
     return {
+        "central_bank": "Federal Reserve",
         "events": events,
         "coverage": "A hand-curated calendar of major Federal Reserve announcements from late 2008: rate turning points, "
                     "asset purchase and runoff decisions, and emergency facilities. Not every FOMC meeting, and nothing "
@@ -407,10 +526,16 @@ def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = No
     }
 
 
-def _weekly(con: duckdb.DuckDBPyConnection) -> dict:
-    view = fedweekly.view(con)
+def _weekly(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) -> dict:
+    _economy(con, economy)
+    view = (euweekly if economy == "ea" else fedweekly).view(con)
     if view is None:
-        raise ToolError("The weekly Federal Reserve balance sheet is not loaded.")
+        raise ToolError("The weekly central bank balance sheet is not loaded for this economy.")
+    euro = economy == "ea"
+    # What differs between the two central banks' weekly statements, for the tool output.
+    view["_"] = {"prefix": "ECB weekly statement" if euro else "H.4.1", "total": euweekly.TOTAL if euro else "RESPPMA",
+                 "currency": "EUR" if euro else "USD", "day": view["weekday"],
+                 "valuation": "securities held for monetary policy at amortised cost" if euro else "securities at face value"}
     return view
 
 
@@ -438,8 +563,10 @@ def _weekly_lines(view: dict):
                 yield side, child, line["id"]
 
 
-def get_fed_weekly(con: duckdb.DuckDBPyConnection, date: str | None = None, compare_to: str | None = None) -> dict:
-    view = _weekly(con)
+def get_fed_weekly(con: duckdb.DuckDBPyConnection, date: str | None = None, compare_to: str | None = None,
+                   economy: str = economies.DEFAULT) -> dict:
+    view = _weekly(con, economy)
+    meta = view["_"]
     periods = view["periods"]
     i = _week(periods, date)
     anchor = view["quarterly"]["index"]
@@ -452,7 +579,7 @@ def get_fed_weekly(con: duckdb.DuckDBPyConnection, date: str | None = None, comp
         row = {"line": line["id"], "name": line["name"], "amount": _bn(level[i]),
                "change_in_week": _bn(level[i] - level[i - 1]) if i else None,
                "change_since_compare_to": _bn(level[i] - level[j]),
-               "series": [f"H.4.1 {s}" for s in line["series"]] or None}
+               "series": [f"{meta['prefix']} {s}" for s in line["series"]] or None}
         if parent:
             row["part_of"] = parent
         if line["computed"] and not line["series"]:
@@ -461,21 +588,24 @@ def get_fed_weekly(con: duckdb.DuckDBPyConnection, date: str | None = None, comp
     total = view["assets"]["total"]
     return {
         "date": periods[i], "compare_to": periods[j], "latest_week_available": periods[-1],
-        "unit": "USD billions; Wednesday levels; securities at face value",
+        "central_bank": view["central_bank"],
+        "unit": f"{meta['currency']} billions; {meta['day']} levels; {meta['valuation']}",
         "total_assets": {"amount": _bn(total[i]), "change_in_week": _bn(total[i] - total[i - 1]) if i else None,
-                         "change_since_compare_to": _bn(total[i] - total[j]), "series": ["H.4.1 RESPPMA"]},
+                         "change_since_compare_to": _bn(total[i] - total[j]), "series": [f"{meta['prefix']} {meta['total']}"]},
         **out,
         "quarterly_accounts_end": {"quarter": view["quarterly"]["period"], "last_week_in_it": periods[anchor]},
         "caveats": [view["notes"]["basis"], view["notes"]["counterparties"],
-                    "Earnings remittances due to the Treasury are negative when the Fed has accumulated losses."],
+                    *(["Earnings remittances due to the Treasury are negative when the Fed has accumulated losses."]
+                      if economy == economies.DEFAULT else [])],
         "source": view["source"]["name"],
-        "link": f"#/us/weekly/fed?period={periods[i]}",
+        "link": f"{view['page']}?period={periods[i]}",
     }
 
 
 def get_fed_weekly_history(con: duckdb.DuckDBPyConnection, lines: list[str], start: str | None = None,
-                           end: str | None = None, frequency: str = "auto") -> dict:
-    view = _weekly(con)
+                           end: str | None = None, frequency: str = "auto", economy: str = economies.DEFAULT) -> dict:
+    view = _weekly(con, economy)
+    meta = view["_"]
     periods = view["periods"]
     known = {line["id"]: line for _, line, _ in _weekly_lines(view)}
     known["total_assets"] = {"id": "total_assets", "name": "Total assets", "level": view["assets"]["total"], "series": ["RESPPMA"]}
@@ -508,7 +638,7 @@ def get_fed_weekly_history(con: duckdb.DuckDBPyConnection, lines: list[str], sta
         low = min(window, key=lambda k: level[k])
         series.append({
             "line": line_id, "name": known[line_id]["name"],
-            "series": [f"H.4.1 {s}" for s in known[line_id]["series"]] or None,
+            "series": [f"{meta['prefix']} {s}" for s in known[line_id]["series"]] or None,
             "amounts": [_bn(level[k]) for k in chosen],
             "change_over_window": _bn(level[i] - level[j]),
             "highest_week": {"date": periods[high], "amount": _bn(level[high])},
@@ -516,12 +646,13 @@ def get_fed_weekly_history(con: duckdb.DuckDBPyConnection, lines: list[str], sta
         })
     return {
         "dates": [periods[k] for k in chosen], "frequency": frequency,
-        "sampling": "Each point is a Wednesday level; monthly and quarterly points are the last week of the period. "
+        "central_bank": view["central_bank"],
+        "sampling": f"Each point is a {meta['day']} level; monthly and quarterly points are the last week of the period. "
                     "Highest and lowest weeks are searched over every week in the window.",
-        "unit": "USD billions; securities at face value",
+        "unit": f"{meta['currency']} billions; {meta['valuation']}",
         "lines": series,
         "source": view["source"]["name"],
-        "link": f"#/us/weekly/fed?period={periods[i]}",
+        "link": f"{view['page']}?period={periods[i]}",
     }
 
 
@@ -743,39 +874,63 @@ REGISTRY: dict[str, tuple[Any, str, dict]] = {
     "latest_moves": (latest_moves,
         "What stood out in the latest quarter: flows that were unusual against each position's own ten-year history, the "
         "largest flows outright, or the largest valuation changes.",
-        _schema({"kind": {"type": "string", "enum": ["unusual_flows", "largest_flows", "valuation_changes"]}}, ["kind"])),
+        _schema({"kind": {"type": "string", "enum": ["unusual_flows", "largest_flows", "valuation_changes"]},
+                 "economy": _ECONOMY}, ["kind"])),
     "get_system_map": (get_system_map,
         "The whole system in one quarter: for each instrument family (Treasuries, other debt, repo, mortgages, loans, "
         "deposits, fund shares, equities, pensions and insurance), how much each sector group owes and holds. Use this for "
         "questions about the overall shape of the system or one group's role across instruments.",
+        _schema({"period": _PERIOD, "economy": _ECONOMY}, [])),
+    "compare_economies": (compare_economies,
+        "The United States and the euro area side by side in one quarter: amounts outstanding of each kind of instrument "
+        "(debt securities, loans, deposits, fund shares, equity, pensions and insurance) and what each sector group holds, "
+        "in US dollars at that quarter's exchange rate and as a percent of each economy's own GDP, with GDP itself. Use it "
+        "for any question that sets the two economies against each other in size or structure. This is the only place "
+        "euro amounts are converted. From 1999:Q1.",
         _schema({"period": _PERIOD}, [])),
+    "get_who_holds_whose": (get_who_holds_whose,
+        "Euro area only: what each sector holds of each sector's paper, for one instrument in one quarter, as holder and "
+        "issuer pairs with amount, share, and that quarter's transactions and valuation change (and the change since "
+        "compare_to). Instruments: F3 debt securities, F4 loans (lender and borrower), F2 deposits (depositor and "
+        "deposit-taker), F51 listed shares, F52 investment fund shares. Use it for questions such as who holds "
+        "government debt, whom banks lend to, or how much of something is held abroad. Debt securities, listed shares "
+        "and fund shares start in 2013:Q4. The US accounts have nothing like this: there, who holds whose paper is a gap.",
+        _schema({"instrument_id": {"type": "string", "enum": ["F2", "F3", "F4", "F51", "F52"]},
+                 "period": _PERIOD, "compare_to": _COMPARE}, ["instrument_id"])),
     "get_rates_and_gdp": (get_rates_and_gdp,
         "Quarterly averages of the federal funds rate and 3-month, 2-year and 10-year Treasury yields, nominal GDP, and the "
-        "latest daily rates. Defaults to the last three years.",
+        "latest daily rates. Defaults to the last three years. With economy ea: the ECB deposit facility rate, euro area "
+        "AAA government yields (from late 2004), euro area GDP in euro, US dollars per euro at each quarter end, and the "
+        "dates of the ten most recent changes in the deposit rate.",
         _schema({"start": {"type": "string", "description": "First quarter, e.g. 2019:Q1."},
-                 "end": {"type": "string", "description": "Last quarter. Omit for the latest."}}, [])),
+                 "end": {"type": "string", "description": "Last quarter. Omit for the latest."}, "economy": _ECONOMY}, [])),
     "get_fed_announcements": (get_fed_announcements,
         "Major Federal Reserve announcements since 2008 (rate turning points, asset purchases and runoff, emergency "
-        "facilities), each with its date and press release. Context only: an announcement near a change is not evidence of cause.",
+        "facilities), each with its date and press release. Context only: an announcement near a change is not evidence of cause. "
+        "With economy ea: major European Central Bank announcements instead.",
         _schema({"start": {"type": "string", "description": "First quarter, e.g. 2020:Q1."},
-                 "end": {"type": "string", "description": "Last quarter."}}, [])),
+                 "end": {"type": "string", "description": "Last quarter."}, "economy": _ECONOMY}, [])),
     "get_fed_weekly": (get_fed_weekly,
         "The Federal Reserve's own balance sheet on one Wednesday, from its weekly H.4.1 release: Treasury securities "
         "(bills, notes and bonds), mortgage-backed securities, loans, and on the other side currency, bank reserve balances, "
         "reverse repurchase agreements, the Treasury General Account and capital. Each line has its change in that week and "
         "since compare_to. This is the only data here newer than the latest quarter; use it for anything about the Fed's "
         "balance sheet, reserves, the Treasury's cash balance or the reverse repo facility recently or week by week. It "
-        "covers the Federal Reserve only, from December 2002.",
+        "covers the Federal Reserve only, from December 2002. With economy ea it is the Eurosystem's weekly statement "
+        "instead (the ECB and the euro area's national central banks together), every Friday from January 1999, in euro: "
+        "securities (those held for monetary policy shown separately), lending to banks, gold, and on the other side "
+        "banknotes, banks' deposits (current accounts and the deposit facility), government deposits and capital.",
         _schema({"date": {"type": "string", "description": "A date such as 2026-11-18 (the latest week on or before it is used), or a quarter such as 2026:Q2 for its last week. Omit for the latest week."},
-                 "compare_to": {"type": "string", "description": "An earlier date or quarter. Defaults to the last week of the latest quarter in the quarterly accounts, or a year earlier for older dates."}}, [])),
+                 "compare_to": {"type": "string", "description": "An earlier date or quarter. Defaults to the last week of the latest quarter in the quarterly accounts, or a year earlier for older dates."}, "economy": _ECONOMY}, [])),
     "get_fed_weekly_history": (get_fed_weekly_history,
         "Weekly history of up to six lines of the Federal Reserve's balance sheet, with the highest and lowest week in the "
         "window. Line ids come from get_fed_weekly (for example reserves, reverse_repo, tga, treasuries, mbs), plus total_assets. "
+        "With economy ea the lines are the Eurosystem's (for example securities_policy, lending, bank_deposits, deposit_facility, banknotes). "
         "Defaults to the last six months, weekly.",
         _schema({"lines": {"type": "array", "items": {"type": "string"}, "description": "One to six line ids."},
                  "start": {"type": "string", "description": "First date or quarter. Data starts 2002-12-18."},
                  "end": {"type": "string", "description": "Last date or quarter. Omit for the latest week."},
-                 "frequency": {"type": "string", "enum": ["auto", "weekly", "monthly", "quarterly"]}}, ["lines"])),
+                 "frequency": {"type": "string", "enum": ["auto", "weekly", "monthly", "quarterly"]}, "economy": _ECONOMY}, ["lines"])),
     "get_foreign_holders": (get_foreign_holders,
         "Foreign holders of one kind of US security by country in one month, ranked, from the Treasury's TIC reports: amount, "
         "share of foreign holdings, and change and net purchases since compare_to. Assets: treasuries (bills, notes and bonds), "

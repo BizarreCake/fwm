@@ -136,7 +136,19 @@ def test_api_serves_the_euro_area_beside_the_us_and_refuses_what_is_us_only(con)
     assert client.get("/api/economy/ea/instruments/F3").json()["economy"] == "ea"
     assert client.get("/api/economy/ea/sectors/S2").status_code == 404  # a US sector id
     assert client.get("/api/economy/us/sectors/S12K").status_code == 404  # a euro-area sector id
-    for path in ("overview", "system-map", "weekly/fed", "foreign/treasuries"):
+    overview = client.get("/api/economy/ea/overview").json()
+    assert overview["period"] == client.get("/api/economy/ea/sectors/S1M").json()["periods"][-1]
+    assert overview["largest_flows"] and all(move["series"].startswith("QSA.") for move in overview["largest_flows"])
+    assert not any(move["sector_id"] == "S12K" for move in overview["largest_flows"])  # ranked by its two parts instead
+    system = client.get("/api/economy/ea/system-map").json()
+    assert system["unit"] == "EUR millions"
+    for family in system["families"]:
+        owed, held = (sum(values[-1] for values in family[side].values()) for side in ("issuers", "holders"))
+        assert owed == pytest.approx(held, rel=0.002), family["id"]
+    assert client.get("/api/economy/ea/context").json()["central_bank"] == "ECB"
+    assert client.get("/api/economy/ea/weekly/central-bank").json()["id"] == "eurosystem"
+    assert client.get("/api/economy/us/weekly/central-bank").json()["id"] == "fed"
+    for path in ("weekly/fed", "foreign/treasuries"):
         assert client.get(f"/api/economy/ea/{path}").status_code == 404, path
 
 
@@ -164,3 +176,121 @@ def test_assistant_tools_read_the_euro_area_in_euro(con):
     with pytest.raises(tools.ToolError):
         tools.run(con, "get_sector", {"sector_id": "S12K"})  # without the economy, this is a US lookup
     assert tools.run(con, "get_sector", {"sector_id": "S121"})["unit"] == "USD billions"
+
+
+@pytest.mark.parametrize("instrument_id", list(euroarea.WHO_TO_WHOM))
+def test_who_holds_whose_adds_up_to_each_sectors_totals(con, accounts, instrument_id):
+    view = euroarea.who_to_whom(con, instrument_id)
+    code = euroarea.WHO_TO_WHOM[instrument_id][0]
+    first = view["periods"].index(view["first_period"])
+    assert view["periods"] == accounts.periods and "ROW" in view["holders"] and "ROW" in view["issuers"]
+    for holder in view["holders"]:
+        if holder == "ROW":
+            continue
+        total = accounts.position(holder, "assets", code)["level"]
+        for i in (first, len(total) - 1):
+            held = sum(cell["level"][i] or 0.0 for cell in view["matrix"][holder].values())
+            assert held == pytest.approx(total[i], abs=5), (holder, i)
+    for row in view["matrix"].values():
+        for issuer, cell in row.items():
+            assert all(value is None for value in cell["level"][:first])
+            # Nothing meaningfully negative: a remainder below zero would mean the parts exceed the whole.
+            assert min(value for value in cell["level"][first:] if value is not None) > -500, issuer
+            if not cell["computed"]:
+                assert cell["series"].startswith("QSA.Q.N.I10.W2.")
+
+
+def test_who_holds_whose_tool_and_api(con):
+    from fastapi.testclient import TestClient
+
+    from fwm import api, tools
+
+    view = euroarea.who_to_whom(con, "F3")
+    result = tools.run(con, "get_who_holds_whose", {"instrument_id": "F3", "compare_to": "2022:Q1"})
+    top = result["pairs"][0]
+    assert (top["holder_id"], top["issuer_id"]) == ("S12K", "S13")
+    assert top["amount"] == pytest.approx(view["matrix"]["S12K"]["S13"]["level"][-1] / 1000, abs=0.06)
+    assert result["total"] == pytest.approx(sum(row["amount"] for row in result["by_holder"]), abs=0.5)
+    assert result["total"] == pytest.approx(sum(row["amount"] for row in result["by_issuer"]), abs=0.5)
+    assert len(result["pairs"]) <= 30 and result["link"].startswith("#/ea/instrument/F3")
+    history = tools.run(con, "get_history", {"series": [top["series"]], "start": "2025:Q1"})
+    assert history["series"][0]["observations"][-1]["amount"] == top["amount"]
+    assert "general government" in history["series"][0]["description"]
+    with pytest.raises(tools.ToolError):
+        tools.run(con, "get_who_holds_whose", {"instrument_id": "F3", "period": "2010:Q1"})  # before the detail starts
+    client = TestClient(api.app)
+    assert client.get("/api/economy/ea/who-to-whom/F3").json()["first_period"] == "2013:Q4"
+    assert client.get("/api/economy/ea/who-to-whom/F6").status_code == 404
+    assert client.get("/api/economy/us/who-to-whom/F3").status_code == 404
+
+
+def test_context_has_rates_gdp_exchange_rate_and_ecb_announcements(con):
+    from fwm import eacontext
+
+    if not eacontext.available(con):
+        pytest.skip("no euro-area context; run `uv run fwm ingest --only ecb`")
+    view = eacontext.view(con)
+    assert view["periods"] == euroarea.periods(con) and view["central_bank"] == "ECB"
+    rates = {rate["id"]: rate for rate in view["rates"]}
+    assert [rate["id"] for rate in view["rates"] if rate["shown"]] == ["policy", "yield_2y", "yield_10y"]
+    at = view["periods"].index
+    # The deposit rate was negative from mid-2014 to mid-2022 and 4% at its peak.
+    assert rates["policy"]["values"][at("2016:Q4")] == pytest.approx(-0.40) and rates["policy"]["values"][at("2023:Q4")] == pytest.approx(4.0)
+    assert rates["yield_10y"]["values"][at("2004:Q1")] is None and rates["yield_10y"]["values"][-1] is not None
+    gdp = view["gdp"]["values"]
+    assert all(value is not None for value in gdp) and 14e6 < gdp[-1] < 20e6  # EUR millions over four quarters
+    assert 0.8 < view["fx"]["values"][-1] < 1.6 and view["fx"]["values"][0] is not None
+    assert len(view["events"]) >= 15 and all(event["url"].startswith("https://www.ecb.europa.eu/press/pr/date/") for event in view["events"])
+    assert [event["date"] for event in view["events"]] == sorted(event["date"] for event in view["events"])
+
+
+def test_weekly_eurosystem_adds_up_and_reaches_past_the_quarterly_accounts(con):
+    from fwm import euweekly, tools
+
+    if not euweekly.available(con):
+        pytest.skip("no weekly Eurosystem data; run `uv run fwm ingest --only ecb`")
+    view = euweekly.view(con)
+    periods = view["periods"]
+    assert periods[0] == "1999-01-01" and periods == sorted(periods) and len(set(periods)) == len(periods)
+    assert periods[-1] > f"{view['quarterly']['period'][:4]}-{int(view['quarterly']['period'][-1]) * 3:02d}-30"
+    for side in ("assets", "liabilities"):
+        lines = view[side]["lines"]
+        for i in (0, len(periods) // 2, len(periods) - 1):
+            assert sum(line["level"][i] for line in lines) == pytest.approx(view[side]["total"][i], abs=1)
+        other = lines[-1]
+        assert other["computed"] and min(other["level"]) >= 0
+    assert view["assets"]["total"] == view["liabilities"]["total"]
+    sheet = tools.run(con, "get_fed_weekly", {"economy": "ea"})
+    assert sheet["central_bank"] == "Eurosystem" and sheet["unit"].startswith("EUR billions; Friday")
+    assert sheet["total_assets"]["amount"] == pytest.approx(view["assets"]["total"][-1] / 1000, abs=0.06)
+    assert sheet["link"].startswith("#/ea/weekly/eurosystem") and not any("Fed" in caveat for caveat in sheet["caveats"])
+    history = tools.run(con, "get_fed_weekly_history", {"lines": ["total_assets"], "economy": "ea", "start": "2008-01-04"})
+    assert history["lines"][0]["highest_week"]["date"].startswith("2022")
+    assert tools.run(con, "get_fed_weekly", {})["central_bank"] == "Federal Reserve"
+
+
+def test_economies_side_by_side_convert_at_the_quarters_rate_and_add_up(con):
+    from fastapi.testclient import TestClient
+
+    from fwm import api, compare, context, eacontext, systemmap, tools
+
+    if not compare.available(con):
+        pytest.skip("comparison needs the euro area and its context loaded")
+    view = compare.view(con)
+    assert view["periods"][0] == "1999:Q1" and view["periods"][-1] == euroarea.periods(con)[-1]
+    rate = view["usd_per_eur"][-1]
+    for economy in ("us", "ea"):
+        total = view["total"][economy]
+        for section in ("instruments", "holders"):
+            assert sum(row[economy]["native"][-1] for row in view[section]) == pytest.approx(total["native"][-1], rel=1e-9)
+        own = systemmap.load(con, economy)
+        assert total["native"][-1] == pytest.approx(sum(v[-1] for family in own["families"] for v in family["holders"].values()), rel=1e-9)
+    euro = view["instruments"][0]["ea"]
+    assert euro["usd"][-1] == pytest.approx(euro["native"][-1] * rate) and view["instruments"][0]["us"]["usd"] == view["instruments"][0]["us"]["native"]
+    assert euro["pct_of_gdp"][-1] == pytest.approx(100 * euro["native"][-1] / eacontext.gdp(con, view["periods"])[-1])
+    assert view["gdp"]["us"]["native"][-1] == pytest.approx(context.gdp(con, view["periods"])[-1])
+    result = tools.run(con, "compare_economies", {})
+    first = result["outstanding_by_instrument"][0]
+    assert first["Euro area"]["usd_billions"] == pytest.approx(first["Euro area"]["eur_billions"] * rate, rel=1e-3)
+    assert "eur_billions" not in first["United States"] and result["usd_per_eur"] == rate
+    assert TestClient(api.app).get("/api/compare").json()["periods"] == view["periods"]

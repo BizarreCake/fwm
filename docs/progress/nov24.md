@@ -63,23 +63,31 @@ How it differs from the US side:
 
 ## Known problems
 
-- **Euro-area fund shares do not balance.** Holders show €25.2T against €23.1T owed. The €2.1T difference is money
-  market fund shares, which the accounts book as a liability of the banking sector and the issuer side does not pick
-  up. The test meant to catch this (`test_what_is_held_equals_what_is_owed_for_every_instrument`) passes anyway, so
-  the test needs looking at as well as the view.
 - **Unverified claim**: that TIC Table 2 attributes securities to the country of the issuer. To be confirmed from the
   TIC form instructions.
 - The Fed's download packages used for H.15 and H.4.1 are due to be retired on 2027-03-31.
 
-## Not built for the euro area yet
+## Later the same day: the euro area finished
 
-System map, ranking of unusual flows, share of GDP, interest rates, ECB announcements, a weekly central bank view, and
-a common currency for comparing the two economies. Its overview is three tiles and two tables. The download already
-holds who-holds-whose-paper detail from 2013:Q4 (deposits, debt securities, loans, listed shares, fund shares), unused.
+- **Correction.** An earlier version of this note said euro-area fund shares did not balance (€25.2T held against
+  €23.1T owed). That was a stale figure from before the banking sector was merged; holders and issuers match, as the
+  test says.
+- **Overview.** The euro area has the same front page as the US: system map, unusual flows, largest flows and
+  valuation changes.
+- **Who holds whose paper.** A holder-by-issuer matrix for debt securities, loans, deposits, listed shares and fund
+  shares, on the instrument pages and as an assistant tool. For example banks and central banks hold €4.72T of
+  euro-area government debt securities and the rest of the world €3.04T (2026:Q2).
+- **Rates, GDP, announcements.** ECB deposit rate, AAA government yields, GDP, and 16 ECB announcements, each read
+  from its press release. Share of GDP now works on euro-area charts.
+- **Eurosystem, weekly.** Every Friday from 1999 to 2026-11-20, on the same page and tools as the weekly Fed data.
+- **Side by side.** The two economies compared by instrument and by holder, as a share of own GDP or in dollars.
+- Checks after this: 154 tests pass, 2 skipped as before. Full benchmark, live: 44 of 45. The miss is
+  `fed-largest-asset`: the assistant answered from the weekly Fed data (Treasuries 68% of assets) where the grader
+  expects the quarterly accounts (69.9%). The answer is defensible; the question or the grader should say which.
+
+Still open for the euro area: member countries, holdings by country, and vintages for the weekly and context series.
 
 ## Next
 
-1. Fix the fund-shares gap and the test that missed it.
-2. Finish the euro-area overview: system map and unusual flows, then who-holds-whose-paper, then a common currency.
-3. Links between economies: BIS international banking statistics and the IMF's portfolio survey.
-4. Japan. Only the Bank of Japan's download page has been checked, not the file format.
+1. Links between economies: BIS international banking statistics and the IMF's portfolio survey.
+2. Japan. Only the Bank of Japan's download page has been checked, not the file format.

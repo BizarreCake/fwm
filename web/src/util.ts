@@ -26,14 +26,19 @@ export const api = (path: string) => `/api/economy/${ECONOMY}/${path}`;
 
 /** An amount in millions of the current economy's currency. (Named for the first economy; it is not always dollars.) */
 export function usd(millions: number, signed = false): string {
+  return money(millions, symbol(), signed);
+}
+
+/** An amount in millions, with the currency symbol given. */
+export function money(millions: number, sym: string, signed = false): string {
   const abs = Math.abs(millions);
-  if (abs < 0.5) return `${symbol()}0`;
+  if (abs < 0.5) return `${sym}0`;
   const sign = millions < 0 ? "−" : signed && millions > 0 ? "+" : "";
   let body: string;
   if (abs >= 1e6) body = `${(abs / 1e6).toFixed(abs >= 1e7 ? 1 : 2)}T`;
   else if (abs >= 1e3) body = `${(abs / 1e3).toFixed(abs >= 1e5 ? 0 : 1)}B`;
   else body = `${abs.toFixed(0)}M`;
-  return `${sign}${symbol()}${body}`;
+  return `${sign}${sym}${body}`;
 }
 
 export function pct(fraction: number, digits = 1): string {

@@ -17,6 +17,47 @@ export interface Position extends Measures {
   part_of?: string;
 }
 
+export interface CompareMeasures {
+  native: number[];
+  usd: (number | null)[];
+  pct_of_gdp: (number | null)[];
+}
+
+/** The economies side by side, in dollars and as a share of each one's GDP. */
+export interface CompareView {
+  periods: string[];
+  economies: { id: string; name: string; currency: string }[];
+  gdp: Record<string, CompareMeasures>;
+  total: Record<string, CompareMeasures>;
+  usd_per_eur: (number | null)[];
+  instruments: ({ id: string; name: string } & Record<string, CompareMeasures>)[];
+  holders: ({ id: string; name: string } & Record<string, CompareMeasures>)[];
+  notes: { conversion: string; matching: string; what_it_is: string };
+}
+
+export interface PairCell {
+  series: string;
+  computed: boolean;
+  level: (number | null)[];
+  transactions: (number | null)[];
+  other_change: (number | null)[];
+}
+
+/** What each sector holds of each sector's paper. Euro area only. */
+export interface WhoToWhomView {
+  id: string;
+  name: string;
+  covers: string;
+  periods: string[];
+  first_period: string;
+  sectors: Record<string, { name: string; group: string }>;
+  holders: string[];
+  issuers: string[];
+  matrix: Record<string, Record<string, PairCell>>;
+  source: { name: string; url: string; table: string };
+  notes: { reading: string; rest_of_world: string; coverage: string };
+}
+
 export interface Group extends Measures {
   id: string;
   name: string;
@@ -38,6 +79,8 @@ export interface InstrumentView {
   holders: SideView;
   issuers: SideView | null;
   discrepancy: { series: string; level: (number | null)[] } | null;
+  /** True when holdings by counterpart sector are published for this instrument (euro area). */
+  who_to_whom?: boolean;
   source: { name: string; url: string; table: string; published_at: string | null; latest_period: string };
   notes: { sides: string; other_change: string; coverage: string; issuers: string | null };
 }
@@ -153,12 +196,16 @@ export interface RateSeries {
   /** Quarterly averages, percent per year. */
   values: (number | null)[];
   latest: { date: string; value: number };
+  /** Drawn on the rates chart. */
+  shown: boolean;
 }
 
 export interface ContextView {
+  /** Short name of the central bank whose announcements these are: Fed or ECB. */
+  central_bank: string;
   periods: string[];
   rates: RateSeries[];
-  /** Nominal GDP over the four quarters ending in each quarter, USD millions. */
+  /** Nominal GDP over the four quarters ending in each quarter, in millions of the economy's currency. */
   gdp: { series: string; values: (number | null)[] };
   events: PolicyEvent[];
   notes: { rates: string; gdp: string; events: string };
@@ -177,6 +224,17 @@ export interface WeeklyLine {
 export interface WeeklyView {
   id: string;
   name: string;
+  /** "Federal Reserve" or "Eurosystem". */
+  central_bank: string;
+  /** "the Fed's", "the Eurosystem's". */
+  possessive: string;
+  weekday: string;
+  series_label: string;
+  /** Liability lines shown on the overview strip. */
+  headline: string[];
+  default_line: string;
+  /** Hash of this page, e.g. #/us/weekly/fed. */
+  page: string;
   /** Dates, one per week. */
   periods: string[];
   assets: { total: number[]; lines: WeeklyLine[] };

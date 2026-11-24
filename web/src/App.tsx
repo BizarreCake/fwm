@@ -5,7 +5,6 @@ import { OverviewPage } from "./OverviewPage";
 import { WeeklyFedPage } from "./WeeklyFedPage";
 import { ForeignPage } from "./ForeignPage";
 import { CountryPage } from "./CountryPage";
-import { EconomyPage } from "./EconomyPage";
 import { setEconomy } from "./util";
 import { Chat } from "./Chat";
 import { ContextProvider } from "./context";
@@ -25,9 +24,21 @@ function useHash(): string {
 
 export function App() {
   return (
-    <ContextProvider>
+    <>
       <Route />
       <Chat />
+    </>
+  );
+}
+
+/** Rates, GDP and announcements belong to one economy, so they are fetched for whichever one is showing. */
+function Route() {
+  const hash = useHash();
+  const named = hash.match(/^#\/(\w+)(?:[/?]|$)/)?.[1];
+  const current = named && ECONOMIES.includes(named) ? named : ECONOMY;
+  return (
+    <ContextProvider key={current} economy={current}>
+      <Pages />
     </ContextProvider>
   );
 }
@@ -36,7 +47,7 @@ export function App() {
 const ECONOMY = "us";
 const ECONOMIES = ["us", "ea"];
 
-function Route() {
+function Pages() {
   const hash = useHash();
   const [path, query = ""] = hash.split("?");
   // Links made before pages carried an economy (#/sector/S121) still work.
@@ -58,12 +69,11 @@ function Route() {
     const [, , kind, id] = page;
     if (kind === "sector") return <SectorPage key={`${current}/${id}`} sectorId={id} period={period} />;
     if (kind === "instrument") return <InstrumentPage key={`${current}/${id}`} instrumentId={id} period={period} />;
+    if (kind === "weekly") return <WeeklyFedPage key={current} period={period} />;
   }
   if (page && page[1] === ECONOMY) {
     const [, , kind, id] = page;
     if (kind === "foreign") return <ForeignPage key={id} asset={id} period={period} />;
-    if (kind === "weekly" && id === "fed") return <WeeklyFedPage period={period} />;
   }
-  if (current !== ECONOMY) return <EconomyPage key={current} />;
-  return <OverviewPage />;
+  return <OverviewPage key={current} />;
 }

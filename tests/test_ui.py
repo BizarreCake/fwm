@@ -336,16 +336,39 @@ def test_euro_area_pages_are_in_euro_and_keep_to_their_own_economy(page, base_ur
     page.wait_for_function("document.querySelector('h1')?.innerText.includes('Euro area financial system')")
     page.wait_for_selector("table.table")
     assert page.url.endswith("#/ea") and "Euro area financial system" in page.inner_text("h1")
-    assert "€" in page.inner_text(".tiles") and "$" not in page.inner_text("main")
-    page.get_by_role("link", name="Debt securities").click()
-    page.wait_for_selector("svg")
+    page.wait_for_selector("table.moves")
+    page.wait_for_selector("svg[aria-label^='Amounts owed and held']")
+    page.wait_for_selector("table.compare")
+    page.wait_for_selector(".tiles")
+    front = page.inner_text("main")
+    # Dollars appear only in the side-by-side card, which converts on purpose.
+    outside = "".join(card.inner_text() for card in page.locator("main > *").all() if "side by side" not in card.inner_text())
+    assert "$" not in outside, [outside[max(0, k - 80):k + 30] for k in range(len(outside)) if outside[k] == "$"][:3]
+    assert "€" in front and "Who owes, through what" in front and "of which:" in front
+    # The two economies side by side, and the Eurosystem's weekly figures, are on the front page.
+    assert "side by side" in front and "% of own GDP" in front and "Eurosystem total assets" in front
+    assert "Held in custody" not in front and page.locator("svg[aria-label^='Amounts owed and held']").count() == 1
+    page.get_by_role("link", name="Debt securities").first.click()
+    page.wait_for_function("document.querySelector('h1')?.innerText.includes('Debt securities')")
+    page.get_by_role("button", name="Euros").wait_for()
     assert "#/ea/instrument/F3" in page.url and "Euro area" in page.inner_text("h1")
     text = page.inner_text("main")
     assert "€" in text and "$" not in text and "of which:" in text and "Since 1999" in text
-    assert page.get_by_role("button", name="Euros").count() == 1 and page.get_by_role("button", name="% of GDP").count() == 0
+    assert page.get_by_role("button", name="Euros").count() == 1 and page.get_by_role("button", name="% of GDP").count() == 1
+    assert "Interest rates and ECB announcements" in text and "Fed announcement" not in text
+    # Who holds whose: the matrix opens on its largest cell, and a cell can be chosen.
+    page.wait_for_selector("table.matrix")
+    assert "holding paper of General government" in page.inner_text("h3.pair-title")
+    page.locator("table.matrix tbody tr").nth(7).locator("button.cell-button").nth(1).click()
+    assert "Households and non-profits holding paper of Banks" in page.inner_text("h3.pair-title")
     page.get_by_role("link", name="Central banks (Eurosystem) →").click()
+    page.wait_for_function("document.querySelector('h1')?.innerText.includes('Central banks')")
+    assert "#/ea/sector/S121" in page.url
+    page.get_by_role("link", name="Weekly balance sheet, more recent than the quarterly accounts →").click()
+    page.wait_for_function("document.querySelector('h1')?.innerText.includes('Eurosystem, weekly')")
     page.wait_for_selector("svg")
-    assert "#/ea/sector/S121" in page.url and "Weekly balance sheet" not in page.inner_text("main")
+    weekly = page.inner_text("main")
+    assert "#/ea/weekly/eurosystem" in page.url and "every Friday" in weekly and "Deposit facility" in weekly and "$" not in weekly
     page.get_by_role("link", name="← Overview").click()
     page.wait_for_function("document.querySelector('h1')?.innerText.includes('Euro area financial system')")
     assert page.url.endswith("#/ea")
