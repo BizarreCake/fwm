@@ -13,7 +13,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from fwm import agent, bench, mcp_server, tools
+from fwm.assistant import agent, bench, mcp_server, tools
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 
@@ -54,7 +54,7 @@ def test_mcp_server_speaks_over_stdio():
         pytest.skip("no ingested data")
     requests = [rpc("initialize", 1, protocolVersion="2025-06-18"), {"jsonrpc": "2.0", "method": "notifications/initialized"},
                 rpc("tools/call", 2, name="flag_data_gap", arguments={"category": "entity", "explanation": "x"})]
-    done = subprocess.run([sys.executable, "-m", "fwm.mcp_server"], input="\n".join(map(json.dumps, requests)) + "\n",
+    done = subprocess.run([sys.executable, "-m", "fwm.assistant.mcp_server"], input="\n".join(map(json.dumps, requests)) + "\n",
                           capture_output=True, text=True, timeout=30, env={**os.environ, "FWM_DB": str(DB_PATH)})
     replies = [json.loads(line) for line in done.stdout.splitlines()]
     assert [reply["id"] for reply in replies] == [1, 2]
@@ -123,7 +123,7 @@ def test_command_gives_claude_code_only_our_tools_and_resumes_follow_ups(con):
     assert option("--tools") == "" and "--strict-mcp-config" in command and option("--setting-sources") == ""
     assert option("--allowedTools") == "mcp__fwm" and option("--system-prompt") == agent.system_prompt(con)
     server = json.loads(option("--mcp-config"))["mcpServers"]["fwm"]
-    assert server["args"] == ["-m", "fwm.mcp_server"] and Path(server["env"]["FWM_DB"]) == DB_PATH
+    assert server["args"] == ["-m", "fwm.assistant.mcp_server"] and Path(server["env"]["FWM_DB"]) == DB_PATH
     # The model is always named, so it does not depend on Claude Code's own default.
     assert option("--model") == agent.MODEL == "claude-opus-5-5"
     assert "--resume" not in command and "--dangerously-skip-permissions" not in command

@@ -5,7 +5,9 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from fwm import links, tools
+from fwm import codes
+from fwm.assistant import tools
+from fwm.views import links
 
 DB = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 
@@ -139,7 +141,7 @@ def test_api_serves_the_view(view):
 
 
 def test_agrees_with_us_treasury_country_data_where_the_two_measure_the_same_thing(con, view):
-    from fwm import countries
+    from fwm.views import countries
 
     japan = countries.view(con, "japan")
     if japan is None or "2025-12" not in japan["periods"]:
@@ -158,12 +160,12 @@ def test_agrees_with_us_treasury_country_data_where_the_two_measure_the_same_thi
 # Every country as a reporter
 
 def test_country_codes_are_unique_and_cover_the_countries_with_pages(con):
-    from fwm import countries
+    from fwm.views import countries
 
-    codes = links.load_codes()
-    assert len({row["iso2"] for row in codes}) == len(codes) == len({row["iso3"] for row in codes})
-    assert links.find_country("Korea, South")["iso2"] == "KR" and links.find_country("türkiye")["iso2"] == "TR"
-    assert links.find_country("Germany")["iso2"] == links.find_country("DEU")["iso2"] == "DE"
+    rows = codes.load_codes()
+    assert len({row["iso2"] for row in rows}) == len(rows) == len({row["iso3"] for row in rows})
+    assert codes.find_country("Korea, South")["iso2"] == "KR" and codes.find_country("türkiye")["iso2"] == "TR"
+    assert codes.find_country("Germany")["iso2"] == codes.find_country("DEU")["iso2"] == "DE"
     entities = [e for e in countries._entities(con).values() if e["kind"] == "country"]
     assert all(countries.code_of(e) for e in entities)
     assigned = [countries.code_of(e) for e in entities]

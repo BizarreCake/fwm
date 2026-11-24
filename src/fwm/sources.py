@@ -16,10 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-ROOT = Path(__file__).resolve().parents[2]
-RAW = ROOT / "data" / "raw"
-DB_PATH = ROOT / "data" / "fwm.duckdb"
-DOC_PATH = ROOT / "docs" / "sources.md"
+from fwm.paths import DB_PATH, DOC_PATH, RAW, ROOT  # noqa: F401  (ROOT and DOC_PATH are read through this module)
 
 
 @dataclass(frozen=True)
@@ -39,7 +36,6 @@ class Source:
     publisher: str
     url: str
     covers: str
-    module: str
     raw_dir: str                     # under data/raw
     releases: tuple[Release, ...]
     tables: dict[str, str]           # tables this source alone fills -> "columns: what a row is"
@@ -50,13 +46,18 @@ class Source:
     needs: tuple[str, ...] = ()      # other sources read together with this one
     notes: tuple[str, ...] = field(default=())
 
+    @property
+    def module(self) -> str:
+        """The loader: src/fwm/loaders/<id with underscores>.py, with download(raw_dir) and ingest(raw_dir, db_path)."""
+        return f"fwm.loaders.{self.id.replace('-', '_')}"
+
 
 SOURCES: tuple[Source, ...] = (
     Source(
         id="z1", group="z1", name="Federal Reserve Z.1, Financial Accounts of the United States",
         publisher="Federal Reserve Board", url="https://www.federalreserve.gov/releases/z1/",
         covers="US sector balance sheets and instruments, quarterly from 1952:Q1, in US dollars. Also US nominal GDP.",
-        module="z1", raw_dir="z1",
+        raw_dir="z1",
         releases=(Release("fed_z1", "US financial accounts", "quarter", 75, "release"),),
         tables={
             "z1_series": "series_id, description, unit, table_id, table_name, line: one row per series in each table it appears in",
@@ -71,7 +72,7 @@ SOURCES: tuple[Source, ...] = (
         id="rates", group="rates", name="Federal Reserve H.15, Selected Interest Rates",
         publisher="Federal Reserve Board", url="https://www.federalreserve.gov/releases/h15/",
         covers="Daily fed funds rate and 3-month, 2-year and 10-year Treasury yields.",
-        module="rates", raw_dir="h15", takes="seconds",
+        raw_dir="h15", takes="seconds",
         releases=(Release("fed_h15", "US interest rates", "day", 3, "release"),),
         tables={}, shares=("rate_series", "rates_daily"),
         notes=("Its rows are economy `us`.",),
@@ -80,7 +81,7 @@ SOURCES: tuple[Source, ...] = (
         id="fed-weekly", group="fed-weekly", name="Federal Reserve H.4.1, Factors Affecting Reserve Balances",
         publisher="Federal Reserve Board", url="https://www.federalreserve.gov/releases/h41/",
         covers="The Fed's balance sheet every Wednesday from December 2002, in US dollars.",
-        module="fedweekly", raw_dir="h41", takes="seconds",
+        raw_dir="h41", takes="seconds",
         releases=(Release("fed_h41", "Weekly Fed balance sheet", "week", 2, "release"),),
         tables={
             "weekly_series": "series_id, source, description: the H.4.1 series loaded",
@@ -91,7 +92,7 @@ SOURCES: tuple[Source, ...] = (
         id="tic", group="tic", name="US Treasury TIC, SLT Tables 1, 2 and 3",
         publisher="US Department of the Treasury", url="https://home.treasury.gov/data/treasury-international-capital-tic-system",
         covers="Foreign holdings of US securities and US holdings of foreign securities, by country, monthly from January 2020.",
-        module="tic", raw_dir="tic", takes="seconds",
+        raw_dir="tic", takes="seconds",
         releases=(
             Release("treasury_tic_slt1", "US long-term securities held by foreigners", "month", 50, "download"),
             Release("treasury_tic_slt2", "Foreign long-term securities held by US residents", "month", 50, "download"),
@@ -104,13 +105,13 @@ SOURCES: tuple[Source, ...] = (
         },
         vintages="Each month's files are kept as data/raw/tic/vintages/slt_table<n>_<month>.txt.",
         needs=("links",),
-        notes=("Country pages are keyed by the Treasury's country names; src/fwm/country_codes.csv ties them to ISO codes.",),
+        notes=("Country pages are keyed by the Treasury's country names; src/fwm/curated/country_codes.csv ties them to ISO codes.",),
     ),
     Source(
         id="ecb-weekly", group="ecb", name="ECB, Weekly financial statement of the Eurosystem (ILM)",
         publisher="European Central Bank", url="https://data.ecb.europa.eu/data/datasets/ILM",
         covers="The Eurosystem's balance sheet every Friday from January 1999, in euro.",
-        module="euweekly", raw_dir="ecb/weekly", takes="under a minute for the whole ecb group",
+        raw_dir="ecb/weekly", takes="under a minute for the whole ecb group",
         releases=(Release("ecb_weekly", "Weekly Eurosystem balance sheet", "week", 5, "download"),),
         tables={"eurosystem_weekly": "series_id, date, value: Friday levels, EUR millions"},
     ),
@@ -118,7 +119,7 @@ SOURCES: tuple[Source, ...] = (
         id="ecb-context", group="ecb", name="ECB key interest rate, yield curve, GDP and dollar exchange rate",
         publisher="European Central Bank", url="https://data.ecb.europa.eu/",
         covers="Deposit facility rate and AAA government yields (daily), euro-area nominal GDP (quarterly), US dollars per euro (daily).",
-        module="eacontext", raw_dir="ecb/context",
+        raw_dir="ecb/context",
         releases=(
             Release("ecb_rates", "Euro-area interest rates", "day", 3, "download"),
             Release("ecb_gdp", "Euro-area GDP", "quarter", 70, "download"),
@@ -132,7 +133,7 @@ SOURCES: tuple[Source, ...] = (
         id="ecb-accounts", group="ecb", name="ECB, Quarterly Sector Accounts for the euro area (QSA)",
         publisher="European Central Bank", url="https://data.ecb.europa.eu/data/datasets/QSA",
         covers="Euro-area sector balance sheets, instruments and who-holds-whose detail, quarterly from 1999:Q1, in euro.",
-        module="ecb", raw_dir="ecb",
+        raw_dir="ecb",
         releases=(Release("ecb_qsa", "Euro-area financial accounts", "quarter", 120, "download"),),
         tables={
             "qsa_series": "key, counterpart_area, sector, counterpart_sector, side, measure, instrument, maturity: the ECB series "
@@ -149,7 +150,7 @@ SOURCES: tuple[Source, ...] = (
         url="https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm",
         covers="Bank of Japan policy rate (BIS, daily), 2- and 10-year government bond yields (Ministry of Finance, daily), "
                "nominal GDP (OECD, quarterly), yen per euro (ECB, daily).",
-        module="jpcontext", raw_dir="boj/context", takes="under a minute for the whole boj group",
+        raw_dir="boj/context", takes="under a minute for the whole boj group",
         releases=(
             Release("jp_policy_rate", "Bank of Japan policy rate (BIS)", "day", 10, "download"),
             Release("jp_yields", "Japanese government bond yields (Ministry of Finance)", "day", 3, "download"),
@@ -165,7 +166,7 @@ SOURCES: tuple[Source, ...] = (
         id="boj-accounts", group="boj", name="Bank of Japan, Flow of Funds Accounts",
         publisher="Bank of Japan", url="https://www.boj.or.jp/en/statistics/sj/index.htm",
         covers="Japan's sector balance sheets and instruments, quarterly from 1997:Q4, in yen.",
-        module="boj", raw_dir="boj",
+        raw_dir="boj",
         releases=(Release("boj_fof", "Japan's financial accounts", "quarter", 80, "release"),),
         tables={"jff_observations": "series_id, period, value: one value per series and quarter, JPY millions"},
         vintages="Each file is kept as data/raw/boj/vintages/fof-<date the Bank prepared it>.zip.",
@@ -178,7 +179,7 @@ SOURCES: tuple[Source, ...] = (
         publisher="International Monetary Fund, Bank for International Settlements", url="https://data.imf.org/en/datasets/IMF.STA:PIP",
         covers="Positions between pairs of countries in US dollars: holdings of equity and of debt securities (IMF, end of "
                "June and December from 2001), and bank claims and liabilities (BIS, quarterly from 1999).",
-        module="links", raw_dir="links", takes="about four minutes",
+        raw_dir="links", takes="about four minutes",
         releases=(
             Release("imf_pip", "Portfolio holdings by country pair (IMF)", "half-year", 300, "download"),
             Release("bis_lbs", "Bank positions by country pair (BIS)", "quarter", 120, "download"),
@@ -188,14 +189,14 @@ SOURCES: tuple[Source, ...] = (
         rebuilds=("links",),
         notes=(
             "reporter is an ISO two-letter code (or 5A, all BIS reporting countries); counterpart keeps the source's own code: "
-            "three letters in IMF rows, two in BIS rows. src/fwm/country_codes.csv maps between them.",
+            "three letters in IMF rows, two in BIS rows. src/fwm/curated/country_codes.csv maps between them.",
             "Past downloads are not kept: each refresh replaces the four files.",
         ),
     ),
 )
 
 # Tables that belong to no single source. The first four hold every economy's rates, GDP and exchange rates:
-# each loader replaces its own economy's rows (src/fwm/contextbase.py). US GDP is not in them; it is a Z.1 series.
+# each loader replaces its own economy's rows (src/fwm/economies/base.py). US GDP is not in them; it is a Z.1 series.
 SHARED_TABLES = {
     "rate_series": "economy, series_id, name, short_name, source_series, shown: the interest rates loaded for each economy",
     "rates_daily": "economy, series_id, date, value: percent per year",
@@ -215,10 +216,10 @@ COMPUTED = {
 }
 # Files in the repository that are maintained by hand, not downloaded.
 CURATED = {
-    "src/fwm/events.csv": "Federal Reserve announcements shown on US charts. Add a row with the date, kind, title, detail and press release.",
-    "src/fwm/events_ea.csv": "ECB announcements, the same way.",
-    "src/fwm/events_jp.csv": "Bank of Japan announcements, the same way. Titles follow the Bank's own release titles.",
-    "src/fwm/country_codes.csv": "ISO two- and three-letter codes, names and other names for 249 countries. Built once from the IMF "
+    "src/fwm/curated/events.csv": "Federal Reserve announcements shown on US charts. Add a row with the date, kind, title, detail and press release.",
+    "src/fwm/curated/events_ea.csv": "ECB announcements, the same way.",
+    "src/fwm/curated/events_jp.csv": "Bank of Japan announcements, the same way. Titles follow the Bank's own release titles.",
+    "src/fwm/curated/country_codes.csv": "ISO two- and three-letter codes, names and other names for 249 countries. Built once from the IMF "
                                  "and BIS code lists by scripts/make_country_codes.py and corrected by hand; edit it directly.",
 }
 GROUPS = tuple(dict.fromkeys(source.group for source in SOURCES))
@@ -244,49 +245,50 @@ def names() -> list[str]:
 
 # Loading
 
-def _z1(raw: Path, db: Path, download: bool) -> str:
-    from fwm import z1
-
-    lines = []
-    if download:
-        lines.append(f"Downloaded Z.1 release (published {z1.download(raw)})")
-    z1.archive(raw)
-    summary = z1.ingest(raw, db)
-    lines.append(f"Loaded {summary['observations']:,} observations across {summary['series']:,} series; latest quarter {summary['latest_period']}")
-    return "\n".join(lines)
-
-
-def _simple(module_name: str, describe: Callable[[dict], str]) -> Callable[[Path, Path, bool], str]:
-    def run(raw: Path, db: Path, download: bool) -> str:
-        import importlib
-
-        module = importlib.import_module(f"fwm.{module_name}")
-        if download:
-            module.download(raw)
-        return describe(module.ingest(raw, db))
-
-    return run
-
-
-LOADERS: dict[str, Callable[[Path, Path, bool], str]] = {
-    "z1": _z1,
-    "rates": _simple("rates", lambda s: f"Loaded {s['observations']:,} daily interest rates; latest {s['latest']}"),
-    "fed-weekly": _simple("fedweekly", lambda s: f"Loaded {s['observations']:,} weekly Fed balance sheet values; latest {s['latest']}"),
-    "tic": _simple("tic", lambda s: f"Loaded foreign holdings of US securities for {s['countries']} countries; latest {s['latest']}"),
-    "ecb-weekly": _simple("euweekly", lambda s: f"Loaded {s['weeks']:,} weeks of the Eurosystem's balance sheet; latest {s['latest']}"),
-    "ecb-context": _simple("eacontext", lambda s: f"Loaded euro-area rates to {s['rates_latest']}, GDP to {s['gdp_latest']}, "
-                                                  f"dollar exchange rate to {s['fx_latest']}"),
-    "ecb-accounts": _simple("ecb", lambda s: f"Loaded {s['observations']:,} euro-area observations in {s['series']:,} series; latest {s['latest']}"),
-    "jp-context": _simple("jpcontext", lambda s: f"Loaded Japanese rates to {s['rates_latest']}, GDP to {s['gdp_latest']}, "
-                                                 f"yen exchange rate to {s['fx_latest']}"),
-    "boj-accounts": _simple("boj", lambda s: f"Loaded {s['observations']:,} Japanese observations in {s['series']:,} series; latest {s['latest']}"),
-    "links": _simple("links", lambda s: f"Loaded {s['observations']:,} positions between countries; latest {s['latest']}"),
+DESCRIBE: dict[str, Callable[[dict], str]] = {
+    "z1": lambda s: f"Loaded {s['observations']:,} observations across {s['series']:,} series; latest quarter {s['latest_period']}",
+    "rates": lambda s: f"Loaded {s['observations']:,} daily interest rates; latest {s['latest']}",
+    "fed-weekly": lambda s: f"Loaded {s['observations']:,} weekly Fed balance sheet values; latest {s['latest']}",
+    "tic": lambda s: f"Loaded foreign holdings of US securities for {s['countries']} countries; latest {s['latest']}",
+    "ecb-weekly": lambda s: f"Loaded {s['weeks']:,} weeks of the Eurosystem's balance sheet; latest {s['latest']}",
+    "ecb-context": lambda s: f"Loaded euro-area rates to {s['rates_latest']}, GDP to {s['gdp_latest']}, dollar exchange rate to {s['fx_latest']}",
+    "ecb-accounts": lambda s: f"Loaded {s['observations']:,} euro-area observations in {s['series']:,} series; latest {s['latest']}",
+    "jp-context": lambda s: f"Loaded Japanese rates to {s['rates_latest']}, GDP to {s['gdp_latest']}, yen exchange rate to {s['fx_latest']}",
+    "boj-accounts": lambda s: f"Loaded {s['observations']:,} Japanese observations in {s['series']:,} series; latest {s['latest']}",
+    "links": lambda s: f"Loaded {s['observations']:,} positions between countries; latest {s['latest']}",
 }
 
 
+def rebuild(con, key: str) -> None:
+    """Work out one stored result again and save it in `computed`."""
+    from fwm.views import links, overview, systemmap
+
+    name, _, economy = key.partition(":")
+    if name == "links":
+        links.build(con)
+    else:
+        {"overview": overview, "system_map": systemmap}[name].build(con, economy or "us")
+
+
 def load(source: Source, download: bool = True, db_path: Path = DB_PATH) -> str:
-    """Download (unless told not to) and load one source; returns a line saying what was loaded."""
-    return LOADERS[source.id](RAW / source.raw_dir, db_path, download)
+    """Download (unless told not to) and load one source, then rebuild what is stored from it; returns what was loaded."""
+    import importlib
+
+    import duckdb
+
+    module = importlib.import_module(source.module)
+    raw = RAW / source.raw_dir
+    if download:
+        module.download(raw)
+    summary = module.ingest(raw, db_path)
+    if source.rebuilds:
+        con = duckdb.connect(str(db_path))
+        try:
+            for key in source.rebuilds:
+                rebuild(con, key)
+        finally:
+            con.close()
+    return DESCRIBE[source.id](summary)
 
 
 # Freshness
@@ -378,7 +380,7 @@ def render() -> str:
                 f"- **Covers:** {source.covers}",
                 f"- **Refresh:** `uv run fwm ingest --only {source.group}`" + (f" ({source.takes})" if source.takes else "")
                 + (f", or `--only {source.id}` for this source alone." if source.group != source.id else "."),
-                f"- **Loader:** `src/fwm/{source.module}.py`; downloads go to `data/raw/{source.raw_dir}/`.",
+                f"- **Loader:** `src/{source.module.replace('.', '/')}.py`; downloads go to `data/raw/{source.raw_dir}/`.",
                 "- **Releases recorded:** " + "; ".join(
                     f"`{r.id}` ({r.frequency}; `published_at` is the {r.published_at} time)" for r in source.releases) + ".",
                 "- **Past downloads:** " + (source.vintages or "not kept; each refresh replaces the files.")]
@@ -401,7 +403,7 @@ def render() -> str:
     out += [f"- `{path}` — {text}" for path, text in CURATED.items()]
     out += [
         "", "## How the sources fit together", "",
-        "- **Economies.** `us` is Z.1, `ea` is the ECB accounts, `jp` is the Bank of Japan accounts. `src/fwm/economies.py` "
+        "- **Economies.** `us` is Z.1, `ea` is the ECB accounts, `jp` is the Bank of Japan accounts. `src/fwm/economies/` "
         "gives each its accounts and its context (rates, GDP, announcements) behind one interface; nothing joins their "
         "tables directly. `rate_series`, `rates_daily` and `gdp_quarterly` carry an `economy` column with these ids.",
         "- **Periods.** Quarters are `2026:Q2` everywhere, months `2026-09`, days ISO dates. Daily rates are averaged to "

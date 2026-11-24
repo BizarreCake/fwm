@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-fwm = "fwm:main"
+fwm = "fwm.cli:main"
 qcbridge = "qcbridge.cli:main"
 
 [build-system]

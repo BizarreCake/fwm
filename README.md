@@ -70,32 +70,29 @@ For UI development, run `uv run fwm serve --reload` and `npm run dev` in `web/` 
 
 ## Layout
 
-- `src/fwm/z1.py`: ingests every Z.1 table into `z1_series` and `z1_observations`, and records the release vintage.
-- `src/fwm/structure.py`: infers which lines of each Z.1 table sum to which totals, verified against every quarter.
-- `src/fwm/sectors.py`: sector balance sheets as verified trees.
-- `src/fwm/instruments.py`: holders and issuers of each instrument, and the shared sector groups used on every page.
-- `src/fwm/overview.py`: ranks the latest quarter's flows against each position's own history; computed at ingest.
-- `src/fwm/systemmap.py`: amounts owed and held by sector group and instrument family; computed at ingest.
-- `src/fwm/rates.py`: daily benchmark interest rates from H.15.
-- `src/fwm/fedweekly.py`: the Federal Reserve's weekly balance sheet from H.4.1, arranged so each side adds up to the published total.
-- `src/fwm/tic.py`: foreign holders of US securities by country from the Treasury's TIC reports, checked against Z.1's rest-of-the-world totals.
-- `src/qcbridge/`: the QuantConnect bridge, independent of `fwm`; `worker.py` is what gets pasted into the notebook.
-- `src/fwm/countries.py`: one country's securities links with the US in both directions.
-- `src/fwm/economies.py`: the economies with full accounts (US and euro area), and candidates checked for later. Pages and API paths carry the economy id (`#/us/sector/S121`, `#/ea/sector/S1M`, `/api/economy/ea/sectors`).
-- `src/fwm/ecb.py`: ingests the ECB's quarterly sector accounts for the euro area into `qsa_series` and `qsa_observations`.
-- `src/fwm/euroarea.py`: the euro area's sector and instrument views, in the same shapes as the US ones, and who holds whose paper.
-- `src/fwm/eacontext.py`: euro-area rates, GDP, ECB announcements (`events_ea.csv`) and the dollar exchange rate.
-- `src/fwm/euweekly.py`: the Eurosystem's weekly balance sheet, in the same shape as the weekly Fed data.
-- `src/fwm/boj.py`, `src/fwm/japan.py`, `src/fwm/jpcontext.py`: Japan's accounts from the Bank of Japan's flow of funds, and its rates, GDP and announcements.
-- `src/fwm/sources.py`: the registry of sources that `fwm ingest`, `fwm status` and `docs/sources.md` are driven by. `src/fwm/economies.py`: one lookup for each economy's accounts, rates and GDP, periods and weekly data; `src/fwm/contextbase.py`: the rates, GDP and exchange-rate tables they share.
-- `src/fwm/links.py`: positions between economies from the IMF's portfolio survey and the BIS banking statistics.
-- `src/fwm/compare.py`: the economies side by side, in dollars and as a share of GDP.
-- `src/fwm/ddp.py`: reader for the Fed's download packages (H.15, H.4.1).
-- `src/fwm/context.py`, `src/fwm/events.csv`: rates by quarter, GDP, and a hand-curated calendar of Federal Reserve announcements, each citing its press release.
-- `src/fwm/tools.py`: the assistant's tools, wrapping the same queries the pages use.
-- `src/fwm/agent.py`: the assistant's instructions, and the two ways of reaching the model.
-- `src/fwm/mcp_server.py`: the same tools served to Claude Code over MCP.
-- `src/fwm/bench.py`: benchmark questions with answers computed from the data, and their grader.
-- `src/fwm/api.py`: HTTP API over the views.
+```
+src/fwm/
+  cli.py            the `fwm` command: ingest, status, sources, serve, ask, bench
+  api.py            HTTP API over the views
+  sources.py        the registry of sources: tables, releases, frequency, how to refresh
+  paths.py          where the database, downloads and curated files live
+  codes.py          country codes shared by the Treasury, BIS and IMF data
+  curated/          files maintained by hand: central bank announcements, country codes
+  loaders/          one module per source, named after its id in the registry:
+                    download it and load it into DuckDB, nothing else
+  economies/        one folder per economy with full accounts, each with the same parts
+    __init__.py       the lookup: accounts, context, weekly data and periods by economy id
+    base.py           the rates, GDP and exchange-rate tables all economies share
+    us/               sectors, instruments, structure (Z.1), context, weekly (H.4.1)
+    ea/               accounts (ECB QSA), context, weekly (Eurosystem)
+    jp/               accounts (Bank of Japan flow of funds), context
+  views/            views across sources or economies: overview, system map, comparison,
+                    foreign holders (TIC), countries, links between economies
+  assistant/        instructions and model access (agent), benchmark, MCP server
+    tools/            the assistant's tools by subject, and their registry
+```
+
+Dependencies run one way: loaders know nothing of views or the assistant; economies and views read what loaders stored; the assistant and the API sit on top. A new economy is a folder under `economies/`, a loader, and entries in `economies/__init__.py` and `sources.py`.
+
 - `web/`: React UI.
 - `data/`: downloaded and derived data (not committed).

@@ -5,7 +5,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from fwm import instruments, sectors
+from fwm.economies.us import instruments, sectors
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 GROUP_IDS = {group_id for group_id, _, _ in instruments.GROUPS}

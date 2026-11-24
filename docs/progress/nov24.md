@@ -137,6 +137,14 @@ Still open for the euro area: member countries, holdings by country, and vintage
   per-economy branches left in them. Share of GDP now also works for euro-area series in the history tool.
 - **Not done.** Past downloads are still not kept for the cross-border files, rates and weekly data.
 
+## Cleanup: package layout
+
+- `src/fwm` was 30 flat modules and four data files. It is now `loaders/`, `economies/{us,ea,jp}/`, `views/`,
+  `assistant/` (with `tools/` split by subject) and `curated/`; the README has the map.
+- Modules that both loaded and showed a source were split, so loaders only load. Stored results are rebuilt by the
+  registry after a load, not by the loaders.
+- No table, API route, page or tool changed. File names in the sections above are the old ones.
+
 ## Next
 
 1. The UK as a fourth economy. Its data has not been examined. (Paused here at the user's request.)

@@ -9,10 +9,10 @@ from types import SimpleNamespace
 
 import duckdb
 import pytest
-
 from scripted import ScriptedClient, call
 
-from fwm import agent, bench, instruments, sectors, tools
+from fwm.assistant import agent, bench, tools
+from fwm.economies.us import instruments, sectors
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 
@@ -80,7 +80,7 @@ def test_every_tool_runs_with_minimal_arguments_and_stays_small(con):
 
 
 def test_weekly_fed_tool_matches_the_weekly_page(con):
-    from fwm import fedweekly
+    from fwm.economies.us import weekly as fedweekly
 
     view = fedweekly.view(con)
     sheet = tools.get_fed_weekly(con)
@@ -107,7 +107,7 @@ def test_weekly_fed_tool_matches_the_weekly_page(con):
 
 
 def test_foreign_holder_tools_match_the_country_page(con):
-    from fwm import tic
+    from fwm.views import foreign as tic
 
     view = tic.view(con)
     result = tools.get_foreign_holders(con, top=80)

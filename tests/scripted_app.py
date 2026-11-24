@@ -2,7 +2,7 @@
 
 from scripted import ScriptedClient, call
 
-from fwm import agent, api
+from fwm import api
 
 
 def respond(messages):

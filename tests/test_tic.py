@@ -5,7 +5,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from fwm import tic
+from fwm.views import foreign as tic
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 

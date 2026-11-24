@@ -5,7 +5,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from fwm import euroarea
+from fwm.economies.ea import accounts as euroarea
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 
@@ -153,7 +153,7 @@ def test_api_serves_the_euro_area_beside_the_us_and_refuses_what_is_us_only(con)
 
 
 def test_assistant_tools_read_the_euro_area_in_euro(con):
-    from fwm import tools
+    from fwm.assistant import tools
 
     listed = tools.run(con, "list_sectors", {"economy": "ea"})
     assert listed["unit"].startswith("EUR billions") and listed["link"] == "#/ea"
@@ -204,7 +204,8 @@ def test_who_holds_whose_adds_up_to_each_sectors_totals(con, accounts, instrumen
 def test_who_holds_whose_tool_and_api(con):
     from fastapi.testclient import TestClient
 
-    from fwm import api, tools
+    from fwm import api
+    from fwm.assistant import tools
 
     view = euroarea.who_to_whom(con, "F3")
     result = tools.run(con, "get_who_holds_whose", {"instrument_id": "F3", "compare_to": "2022:Q1"})
@@ -226,7 +227,7 @@ def test_who_holds_whose_tool_and_api(con):
 
 
 def test_context_has_rates_gdp_exchange_rate_and_ecb_announcements(con):
-    from fwm import eacontext
+    from fwm.economies.ea import context as eacontext
 
     if not eacontext.available(con):
         pytest.skip("no euro-area context; run `uv run fwm ingest --only ecb`")
@@ -246,7 +247,8 @@ def test_context_has_rates_gdp_exchange_rate_and_ecb_announcements(con):
 
 
 def test_weekly_eurosystem_adds_up_and_reaches_past_the_quarterly_accounts(con):
-    from fwm import euweekly, tools
+    from fwm.assistant import tools
+    from fwm.economies.ea import weekly as euweekly
 
     if not euweekly.available(con):
         pytest.skip("no weekly Eurosystem data; run `uv run fwm ingest --only ecb`")
@@ -273,7 +275,11 @@ def test_weekly_eurosystem_adds_up_and_reaches_past_the_quarterly_accounts(con):
 def test_economies_side_by_side_convert_at_the_quarters_rate_and_add_up(con):
     from fastapi.testclient import TestClient
 
-    from fwm import api, compare, context, eacontext, systemmap, tools
+    from fwm import api
+    from fwm.assistant import tools
+    from fwm.economies.ea import context as eacontext
+    from fwm.economies.us import context
+    from fwm.views import compare, systemmap
 
     if not compare.available(con):
         pytest.skip("comparison needs the euro area and its context loaded")

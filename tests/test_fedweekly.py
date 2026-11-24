@@ -6,7 +6,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from fwm import fedweekly, sectors
+from fwm.economies.us import sectors
+from fwm.economies.us import weekly as fedweekly
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 

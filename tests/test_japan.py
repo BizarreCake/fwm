@@ -5,7 +5,9 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from fwm import japan, overview, systemmap, tools
+from fwm.assistant import tools
+from fwm.economies.jp import accounts as japan
+from fwm.views import overview, systemmap
 
 DB = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 

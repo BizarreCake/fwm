@@ -6,7 +6,10 @@ import duckdb
 import pytest
 from fastapi.testclient import TestClient
 
-from fwm import api, countries, economies, tic, tools
+from fwm import api, economies
+from fwm.assistant import tools
+from fwm.views import countries
+from fwm.views import foreign as tic
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 

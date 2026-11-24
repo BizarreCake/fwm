@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 from collections import OrderedDict
-from pathlib import Path
 
 import duckdb
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
-from fwm import agent, compare, countries, economies, euroarea, fedweekly, instruments, links, tic, overview, sectors, systemmap
-
-ROOT = Path(__file__).resolve().parents[2]
-DB_PATH = Path(os.environ.get("FWM_DB", ROOT / "data" / "fwm.duckdb"))
-WEB_DIST = ROOT / "web" / "dist"
+from fwm import economies
+from fwm.assistant import agent
+from fwm.economies.ea import accounts as euroarea
+from fwm.economies.us import weekly as fedweekly
+from fwm.paths import DB_PATH, WEB_DIST
+from fwm.views import compare, countries, links, overview, systemmap
+from fwm.views import foreign as tic
 
 app = FastAPI(title="fwm")
 

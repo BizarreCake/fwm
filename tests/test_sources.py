@@ -45,9 +45,10 @@ def test_every_source_has_a_loader_module_and_known_neighbours():
     import importlib
 
     ids = [source.id for source in sources.SOURCES]
-    assert len(set(ids)) == len(ids) and set(sources.LOADERS) == set(ids)
+    assert len(set(ids)) == len(ids) and set(sources.DESCRIBE) == set(ids)
     for source in sources.SOURCES:
-        module = importlib.import_module(f"fwm.{source.module}")
+        module = importlib.import_module(source.module)
+        assert module.__name__.startswith("fwm.loaders.")
         assert callable(module.download) and callable(module.ingest)
         assert set(source.needs) <= set(ids)
     assert [s.id for s in sources.selected("ecb")] == ["ecb-weekly", "ecb-context", "ecb-accounts"]

@@ -5,7 +5,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from fwm import instruments, overview
+from fwm.economies.us import instruments
+from fwm.views import overview
 
 DB_PATH = Path(__file__).resolve().parents[1] / "data" / "fwm.duckdb"
 
