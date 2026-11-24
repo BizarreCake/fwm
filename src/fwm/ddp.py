@@ -71,3 +71,8 @@ def record_release(con, source_id: str, name: str, url: str, prepared: dt.dateti
     )
     con.execute("DELETE FROM source_release WHERE source_id = ?", [source_id])
     con.execute("INSERT INTO source_release VALUES (?, ?, ?, ?, now(), ?)", [source_id, name, url, prepared, latest])
+
+
+def forget_release(con, source_id: str) -> None:
+    """Drop a release row recorded under an id that is no longer used."""
+    con.execute("DELETE FROM source_release WHERE source_id = ?", [source_id])

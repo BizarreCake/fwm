@@ -1,6 +1,7 @@
 # Data: what we have, what we want, what's next
 
 A working checklist. Update it when a source is added or a priority changes.
+For each source's tables, publication frequency and refresh command, see `docs/sources.md`; a new source also needs an entry in `src/fwm/sources.py`.
 When a gap here is closed, also update the "What the data cannot say" section of the assistant's instructions in `src/fwm/agent.py`.
 
 ## In the system

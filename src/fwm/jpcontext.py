@@ -1,11 +1,8 @@
 """Context for Japan's accounts: interest rates, GDP, Bank of Japan announcements, and the yen exchange rate.
 
-The Japanese counterpart of context.py and eacontext.py, in the same shape.
-
-    jp_rate_series(series_id, name, short_name, source_series, shown)
-    jp_rates_daily(series_id, date, value)
-    jp_gdp(period, value)            -- nominal, JPY millions, per quarter, seasonally adjusted
-    jp_fx_daily(date, value)         -- yen per euro, ECB reference rate
+The Japanese counterpart of context.py and eacontext.py, with the same interface.
+Rates, GDP and the yen rate go into the tables shared by all economies (see contextbase.py),
+as economy `jp` and exchange-rate pair `JPY/EUR` (yen per euro).
 
 Sources: the policy rate from the BIS's central bank policy rate series; government bond
 yields from the Ministry of Finance's daily table; GDP from the OECD's quarterly national
@@ -23,11 +20,15 @@ from pathlib import Path
 
 import duckdb
 
-from fwm import context, ddp, eacontext, japan
+from fwm import contextbase, ddp, eacontext, japan
 
-SOURCE_ID = "jp_context"
-SOURCE_NAME = "BIS policy rates, Ministry of Finance JGB yields, OECD quarterly national accounts, ECB reference exchange rates"
-SOURCE_URL = "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm"
+# release id -> (name, page), as recorded in source_release
+RELEASES = {
+    "jp_policy_rate": ("BIS central bank policy rates: Japan", "https://data.bis.org/topics/CBPOL"),
+    "jp_yields": ("Ministry of Finance of Japan, JGB interest rates", "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm"),
+    "jp_gdp": ("OECD quarterly national accounts: Japan", "https://data-explorer.oecd.org/"),
+    "jp_fx": ("ECB euro foreign exchange reference rates: Japanese yen", "https://data.ecb.europa.eu/"),
+}
 EVENTS_PATH = Path(__file__).with_name("events_jp.csv")
 RELEASE_URL = "https://www.boj.or.jp{release}"
 EVENT_KINDS = {"rate": "Policy rate", "balance_sheet": "Bank of Japan balance sheet", "framework": "Policy framework"}
@@ -43,6 +44,15 @@ FILES = {
     "fx": ("https://data-api.ecb.europa.eu/service/data/EXR/D.JPY.EUR.SP00.A?detail=dataonly&format=csvdata&startPeriod=1999-01-01",
            "text/csv"),
 }
+FX_PAIR = "JPY/EUR"
+ECONOMY = "jp"
+CENTRAL_BANK = CENTRAL_BANK_NAME = "Bank of Japan"
+EVENTS_COVERAGE = ("A hand-curated calendar of major Bank of Japan announcements from 2010: its easing programmes, "
+                   "changes of framework and rate changes. Each is named after the Bank's release; details beyond "
+                   "the release title and the recorded policy rate are not included. Not every meeting.")
+POLICY_NOTE = ("The ten most recent changes in the Bank of Japan's policy rate, by the day each "
+               "took effect. Where the target was a range, the rate is its midpoint.")
+FX_FIELD = ("yen_per_usd_at_quarter_end", True)  # name in the tool's answer, and whether to invert usd_per_unit
 # id -> (name, short name, source series, drawn on the rates chart)
 RATES = {
     "policy": ("Bank of Japan policy rate (uncollateralized overnight call rate target)", "Policy rate", "BIS WS_CBPOL D.JP", True),
@@ -103,97 +113,57 @@ def ingest(raw_dir: Path, db_path: Path) -> dict:
         raise RuntimeError("A Japanese context download holds no values")
     con = duckdb.connect(str(db_path))
     try:
-        con.execute("CREATE OR REPLACE TABLE jp_rate_series (series_id VARCHAR, name VARCHAR, short_name VARCHAR, source_series VARCHAR, shown BOOLEAN)")
-        con.execute("CREATE OR REPLACE TABLE jp_rates_daily (series_id VARCHAR, date DATE, value DOUBLE)")
-        con.execute("CREATE OR REPLACE TABLE jp_gdp (period VARCHAR, value DOUBLE)")
-        con.execute("CREATE OR REPLACE TABLE jp_fx_daily (date DATE, value DOUBLE)")
-        for series_id, (name, short_name, source_series, shown) in RATES.items():
-            con.execute("INSERT INTO jp_rate_series VALUES (?, ?, ?, ?, ?)", [series_id, name, short_name, source_series, shown])
-            con.executemany("INSERT INTO jp_rates_daily VALUES (?, ?, ?)",
-                            [(series_id, date, value) for date, value in series[series_id] if date >= "1997-01-01"])
-        con.executemany("INSERT INTO jp_gdp VALUES (?, ?)", gdp)
-        con.executemany("INSERT INTO jp_fx_daily VALUES (?, ?)", fx)
+        contextbase.replace_rates(con, ECONOMY, RATES, {series_id: [row for row in rows if row[0] >= "1997-01-01"]
+                                                        for series_id, rows in series.items()})
+        contextbase.replace_gdp(con, ECONOMY, gdp)
+        contextbase.replace_fx(con, FX_PAIR, fx)
         latest = max(rows[-1][0] for rows in series.values())
         fetched = dt.datetime.fromtimestamp((raw_dir / "gdp.csv").stat().st_mtime, dt.timezone.utc)
-        ddp.record_release(con, SOURCE_ID, SOURCE_NAME, SOURCE_URL, fetched, latest)
+        ddp.forget_release(con, "jp_context")
+        yields_latest = max(series["yield_2y"][-1][0], series["yield_10y"][-1][0])
+        for release_id, period in (("jp_policy_rate", series["policy"][-1][0]), ("jp_yields", yields_latest),
+                                   ("jp_gdp", gdp[-1][0]), ("jp_fx", fx[-1][0])):
+            ddp.record_release(con, release_id, *RELEASES[release_id], fetched, period)
     finally:
         con.close()
     return {"rates_latest": latest, "gdp_latest": gdp[-1][0], "fx_latest": fx[-1][0]}
 
 
 def available(con: duckdb.DuckDBPyConnection) -> bool:
-    return bool(con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'jp_gdp'").fetchone()[0])
+    return contextbase.has_gdp(con, ECONOMY)
 
 
 def load_events() -> list[dict]:
     """The curated calendar. Every entry cites the Bank of Japan release it is named after."""
-    with EVENTS_PATH.open(newline="", encoding="utf-8") as source:
-        rows = list(csv.DictReader(source))
-    return [{"date": row["date"], "period": context.quarter_of(dt.date.fromisoformat(row["date"])), "kind": row["kind"],
-             "title": row["title"], "detail": row["detail"], "url": RELEASE_URL.format(release=row["release"])} for row in rows]
+    return contextbase.load_events(EVENTS_PATH, RELEASE_URL)
 
 
 def gdp(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]:
     """Nominal GDP over the four quarters ending in each quarter, JPY millions."""
-    rows = dict(con.execute(
-        "SELECT period, CASE WHEN count(*) OVER w = 4 THEN sum(value) OVER w END FROM jp_gdp "
-        "WINDOW w AS (ORDER BY period ROWS BETWEEN 3 PRECEDING AND CURRENT ROW)").fetchall())
-    return [rows.get(label) for label in labels]
+    return contextbase.gdp(con, ECONOMY, labels)
 
 
-def yen_per_euro_quarter_end(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]:
-    rows = dict(con.execute("SELECT year(date) || ':Q' || quarter(date), arg_max(value, date) FROM jp_fx_daily GROUP BY 1").fetchall())
-    return [rows.get(label) for label in labels]
-
-
-def usd_per_yen_quarter_end(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]:
+def usd_per_unit(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]:
     """US dollars per yen at each quarter end: the ECB's dollar rate over its yen rate."""
-    if not eacontext.available(con):
-        return [None] * len(labels)
-    dollars, yen = eacontext.fx_quarter_end(con, labels), yen_per_euro_quarter_end(con, labels)
+    dollars = contextbase.fx_quarter_end(con, eacontext.FX_PAIR, labels)
+    yen = contextbase.fx_quarter_end(con, FX_PAIR, labels)
     return [None if None in (d, y) or not y else d / y for d, y in zip(dollars, yen)]
 
 
 def policy_changes(con: duckdb.DuckDBPyConnection, last: int = 10) -> list[dict]:
     """The most recent days on which the policy rate took a new value, oldest first."""
-    rows = con.execute(
-        "SELECT date, value, previous FROM (SELECT date, value, lag(value) OVER (ORDER BY date) AS previous "
-        "FROM jp_rates_daily WHERE series_id = 'policy') WHERE previous IS NOT NULL AND value <> previous ORDER BY date").fetchall()
-    return [{"effective": date.isoformat(), "rate": value, "previous_rate": previous} for date, value, previous in rows[-last:]]
+    return contextbase.policy_changes(con, ECONOMY, last)
 
 
 def view(con: duckdb.DuckDBPyConnection) -> dict:
     labels = japan.periods(con)
-    index = {label: i for i, label in enumerate(labels)}
-    n = len(labels)
-    averages: dict[str, list] = {}
-    for series_id, year, quarter, value in con.execute(
-            "SELECT series_id, year(date), quarter(date), avg(value) FROM jp_rates_daily GROUP BY ALL").fetchall():
-        i = index.get(f"{year}:Q{quarter}")
-        if i is not None:
-            averages.setdefault(series_id, [None] * n)[i] = round(value, 4)
-    latest = {series_id: (date, value) for series_id, date, value in con.execute(
-        "SELECT series_id, max(date), arg_max(value, date) FROM jp_rates_daily GROUP BY 1").fetchall()}
-    rates = [{"id": series_id, "name": name, "short_name": short_name, "source_series": source_series, "shown": shown,
-              "values": averages.get(series_id, [None] * n),
-              "latest": {"date": latest[series_id][0].isoformat(), "value": latest[series_id][1]}}
-             for series_id, name, short_name, source_series, shown in con.execute(
-                 "SELECT series_id, name, short_name, source_series, shown FROM jp_rate_series").fetchall()]
-    events = [dict(event, index=index[event["period"]]) for event in load_events() if event["period"] in index]
-    sources = {source_id: {"name": name, "url": url, "latest": latest_period} for source_id, name, url, latest_period in
-               con.execute("SELECT source_id, name, url, latest_period FROM source_release").fetchall()}
-    return {
-        "economy": "jp",
-        "central_bank": "Bank of Japan",
-        "periods": labels,
-        "rates": rates,
-        "gdp": {"series": GDP_SERIES, "unit": "JPY millions", "values": gdp(con, labels)},
-        "fx": {"pair": "USD/JPY", "series": "ECB EXR D.USD.EUR.SP00.A / EXR D.JPY.EUR.SP00.A",
-               "values": usd_per_yen_quarter_end(con, labels)},
-        "events": events,
-        "event_kinds": EVENT_KINDS,
-        "sources": sources,
-        "notes": {
+    return contextbase.view(
+        con, economy=ECONOMY, central_bank=CENTRAL_BANK, labels=labels,
+        gdp={"series": GDP_SERIES, "unit": "JPY millions", "values": gdp(con, labels)},
+        fx={"pair": "USD/JPY", "series": "ECB EXR D.USD.EUR.SP00.A / EXR D.JPY.EUR.SP00.A", "values": usd_per_unit(con, labels)},
+        events=load_events(), event_kinds=EVENT_KINDS,
+        notes={
+            "source": "BIS policy rate series; Ministry of Finance JGB yields; " + GDP_SERIES + " (GDP); ECB reference rates",
             "rates": "Quarterly averages of daily rates, percent per year. The policy rate is the Bank of Japan's target for "
                      "the overnight call rate as recorded by the BIS (the midpoint where the target is a range); yields are "
                      "the Ministry of Finance's daily government bond yields.",
@@ -201,5 +171,4 @@ def view(con: duckdb.DuckDBPyConnection) -> dict:
                    "quarterly national accounts, seasonally adjusted, summed).",
             "events": "Events are Bank of Japan announcements, each named after its release and dated by it. They are shown "
                       "for reference; a marker next to a change does not show that one caused the other.",
-        },
-    }
+        })

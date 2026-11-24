@@ -24,6 +24,9 @@ SOURCE_URL = "https://data.ecb.europa.eu/data/datasets/ILM"
 API = "https://data-api.ecb.europa.eu/service/data/ILM/W.U2.C...?detail=dataonly&format=csvdata"
 FILE_NAME = "ilm_weekly.csv"
 TOTAL = "T000000"
+# How the assistant's tool cites this statement.
+CITE = {"prefix": "ECB weekly statement", "total": TOTAL, "currency": "EUR",
+        "valuation": "securities held for monetary policy at amortised cost"}
 
 Line = tuple[str, str, tuple[str, ...], tuple]
 ASSETS: tuple[Line, ...] = (

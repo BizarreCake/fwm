@@ -15,7 +15,7 @@ from typing import Any
 
 import duckdb
 
-from fwm import compare, context, countries, japan, jpcontext, links, eacontext, economies, euroarea, euweekly, fedweekly, tic, instruments, overview, sectors, systemmap
+from fwm import compare, countries, economies, euroarea, japan, links, tic, instruments, overview, sectors, systemmap
 
 GAP_CATEGORIES = {
     "counterparty": "Which holder holds which issuer's paper, or who lends to whom. Z.1 has each side's totals only.",
@@ -93,10 +93,8 @@ def _economy(con: duckdb.DuckDBPyConnection, economy: str) -> dict:
     """What differs between economies for the sector and instrument tools."""
     if economy not in economies.ECONOMIES:
         raise ToolError(f"Unknown economy {economy!r}. Use one of: {', '.join(economies.ECONOMIES)}.")
-    if economy == "ea" and not euroarea.available(con):
-        raise ToolError("The euro area accounts are not loaded in this installation.")
-    if economy == "jp" and not japan.available(con):
-        raise ToolError("Japan's accounts are not loaded in this installation.")
+    if not economies.available(con, economy):
+        raise ToolError(f"The accounts of {economies.ECONOMIES[economy]['name']} are not loaded in this installation.")
     sector_module, instrument_module = economies.accounts(economy)
     info = economies.ECONOMIES[economy]
     return {"id": economy, "name": info["name"], "unit": f"{info['currency']} billions", "sectors": sector_module,
@@ -255,7 +253,7 @@ def _japan_history(con: duckdb.DuckDBPyConnection, series: list[str], start: str
     annual = frequency == "annual" or (frequency == "auto" and i - j > 48)
     picks = [k for k in range(j, i + 1) if not annual or periods[k].endswith("Q4") or k == i]
     accounts = japan.Accounts(con)
-    gdp = jpcontext.gdp(con, periods) if share_of_gdp else None
+    gdp = economies.context("jp").gdp(con, periods) if share_of_gdp else None
     out = []
     for series_id in series:
         match = re.fullmatch(r"FOF_FFAS(\d{3})([AL])(\d{3})", series_id)
@@ -282,20 +280,15 @@ def get_history(con: duckdb.DuckDBPyConnection, series: list[str], start: str | 
     if any(yen):
         if not all(yen):
             raise ToolError("Pass series from one economy at a time: amounts are in different currencies.")
-        if not japan.available(con):
-            raise ToolError("Japan's accounts are not loaded in this installation.")
-        if share_of_gdp and not jpcontext.available(con):
-            raise ToolError("GDP is not loaded for Japan in this installation.")
+        _context(con, "jp") if share_of_gdp else _economy(con, "jp")
         return _japan_history(con, series, start, end, frequency, share_of_gdp)
     euro = [series_id.startswith("QSA.") for series_id in series]
     if any(euro):
         if not all(euro):
             raise ToolError("Pass series from one economy at a time: US and euro-area amounts are in different currencies.")
-        if share_of_gdp:
-            raise ToolError("GDP is loaded for the United States only, so share_of_gdp is not available for euro-area series.")
-        if not euroarea.available(con):
-            raise ToolError("The euro area accounts are not loaded in this installation.")
-    periods = euroarea.periods(con) if any(euro) else context.periods(con)
+        _context(con, "ea") if share_of_gdp else _economy(con, "ea")
+    economy = "ea" if any(euro) else "us"
+    periods = economies.periods(con, economy)
     index = {label: k for k, label in enumerate(periods)}
     i = _index(periods, end, "end")
     j = _index(periods, start, "start") if start else max(0, i - 40)
@@ -305,7 +298,7 @@ def get_history(con: duckdb.DuckDBPyConnection, series: list[str], start: str | 
         raise ToolError("frequency must be auto, quarterly or annual")
     annual = frequency == "annual" or (frequency == "auto" and i - j > 48)
     picks = [k for k in range(j, i + 1) if not annual or periods[k].endswith("Q4") or k == i]
-    gdp = context.gdp(con, periods) if share_of_gdp else None
+    gdp = economies.context(economy).gdp(con, periods) if share_of_gdp else None
 
     out = []
     for series_id in series if any(euro) else ():
@@ -331,7 +324,7 @@ def get_history(con: duckdb.DuckDBPyConnection, series: list[str], start: str | 
                     + (f", against {euroarea.ALL_NAMES.get(parts[6], parts[6]).lower()}" if parts[4] == "W2" else "")
         out.append({"series": series_id, "description": described,
                     "basis": "market" if parts[10].startswith(euroarea.MARKET_VALUED) else "book",
-                    "observations": _history_rows(periods, picks, level, flow, other, None)})
+                    "observations": _history_rows(periods, picks, level, flow, other, gdp)})
     for series_id in () if any(euro) else series:
         if not re.fullmatch(r"[A-Z]{2}\d{9}\.Q", series_id):
             raise ToolError(f"{series_id!r} is not a Z.1 series id such as LM263061105.Q")
@@ -362,7 +355,7 @@ def latest_moves(con: duckdb.DuckDBPyConnection, kind: str = "unusual_flows", ec
         raise ToolError("kind must be unusual_flows, largest_flows or valuation_changes")
     e = _economy(con, economy)
     view = overview.load(con, economy) or overview.compute(con, economy)
-    symbol = "€" if economy == "ea" else "$"
+    symbol = economies.ECONOMIES[economy]["symbol"]
     return {
         "economy": e["name"],
         "period": view["period"],
@@ -661,23 +654,27 @@ def get_who_holds_whose(con: duckdb.DuckDBPyConnection, instrument_id: str, peri
 
 
 def _context(con: duckdb.DuckDBPyConnection, economy: str):
+    """The economy's rates, GDP and announcements, or a ToolError saying they are not loaded."""
     _economy(con, economy)
-    if economy == "jp":
-        if not jpcontext.available(con):
-            raise ToolError("Japan's rates, GDP and announcements are not loaded in this installation.")
-        return jpcontext
-    if economy == "ea":
-        if not eacontext.available(con):
-            raise ToolError("Euro-area rates, GDP and announcements are not loaded in this installation.")
-        return eacontext
-    return context
+    source = economies.context(economy)
+    if not source.available(con):
+        raise ToolError(f"Rates, GDP and announcements for {economies.ECONOMIES[economy]['name']} are not loaded in this installation.")
+    return source
 
 
 def get_rates_and_gdp(con: duckdb.DuckDBPyConnection, start: str | None = None, end: str | None = None,
                       economy: str = economies.DEFAULT) -> dict:
-    view = _context(con, economy).view(con)
-    euro = economy == "ea"
-    yen = economy == "jp"
+    source = _context(con, economy)
+    view = source.view(con)
+
+    def fx(k: int) -> dict:
+        if source.FX_FIELD is None:
+            return {}
+        name, invert = source.FX_FIELD
+        value = view["fx"]["values"][k]
+        return {name: (round(1 / value, 2) if value else None) if invert else value}
+
+    changes = source.policy_changes(con)
     periods = view["periods"]
     i = _index(periods, end, "end")
     j = _index(periods, start, "start") if start else max(0, i - 12)
@@ -692,28 +689,19 @@ def get_rates_and_gdp(con: duckdb.DuckDBPyConnection, start: str | None = None, 
         "quarters": [
             {"period": periods[k], **{rate["id"]: rate["values"][k] for rate in view["rates"]},
              "gdp": _bn(view["gdp"]["values"][k]),
-             **({"usd_per_eur_at_quarter_end": view["fx"]["values"][k]} if euro else {}),
-             **({"yen_per_usd_at_quarter_end": round(1 / view["fx"]["values"][k], 2) if view["fx"]["values"][k] else None} if yen else {})}
+             **fx(k)}
             for k in range(j, i + 1)
         ],
         "latest_daily": {rate["id"]: rate["latest"] for rate in view["rates"]},
-        **({"policy_rate_changes": eacontext.policy_changes(con),
-            "policy_rate_changes_note": "The ten most recent changes in the deposit facility rate, by the day each took "
-                                        "effect (a few days after the decision was announced)."} if euro else {}),
-        **({"policy_rate_changes": jpcontext.policy_changes(con),
-            "policy_rate_changes_note": "The ten most recent changes in the Bank of Japan's policy rate, by the day each "
-                                        "took effect. Where the target was a range, the rate is its midpoint."} if yen else {}),
-        "source": ("ECB: key interest rates, euro area AAA government yield curve, national accounts series "
-                   + view["gdp"]["series"] + ", reference exchange rate") if euro
-                  else "BIS policy rate series; Ministry of Finance JGB yields; " + view["gdp"]["series"] + " (GDP); ECB reference rates" if yen
-                  else "Federal Reserve H.15 (rates); Z.1 series " + view["gdp"]["series"] + " (GDP)",
+        **({"policy_rate_changes": changes, "policy_rate_changes_note": source.POLICY_NOTE} if changes else {}),
+        "source": view["notes"]["source"],
     }
 
 
 def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = None, end: str | None = None,
                           economy: str = economies.DEFAULT) -> dict:
     source = _context(con, economy)
-    periods = euroarea.periods(con) if economy == "ea" else japan.periods(con) if economy == "jp" else context.periods(con)
+    periods = economies.periods(con, economy)
     i = _index(periods, end, "end") if end else None
     j = _index(periods, start, "start") if start else None
     events = []
@@ -726,22 +714,8 @@ def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = No
         if k is not None and ((i is not None and k > i) or (j is not None and k < j)):
             continue
         events.append({key: event[key] for key in ("date", "period", "kind", "title", "detail", "url")})
-    if economy == "jp":
-        return {
-            "central_bank": "Bank of Japan",
-            "events": events,
-            "coverage": "A hand-curated calendar of major Bank of Japan announcements from 2010: its easing programmes, "
-                        "changes of framework and rate changes. Each is named after the Bank's release; details beyond "
-                        "the release title and the recorded policy rate are not included. Not every meeting.",
-        }
-    if economy == "ea":
-        return {
-            "central_bank": "European Central Bank",
-            "events": events,
-            "coverage": "A hand-curated calendar of major ECB announcements from late 2008: rate turning points, asset "
-                        "purchase and runoff decisions, and lending operations for banks. Not every Governing Council "
-                        "meeting, and nothing from governments or other central banks.",
-        }
+    if source.EVENTS_COVERAGE:
+        return {"central_bank": source.CENTRAL_BANK_NAME, "events": events, "coverage": source.EVENTS_COVERAGE}
     return {
         "central_bank": "Federal Reserve",
         "events": events,
@@ -753,16 +727,15 @@ def get_fed_announcements(con: duckdb.DuckDBPyConnection, start: str | None = No
 
 def _weekly(con: duckdb.DuckDBPyConnection, economy: str = economies.DEFAULT) -> dict:
     _economy(con, economy)
-    if economy == "jp":
-        raise ToolError("The Bank of Japan's balance sheet is loaded quarterly only (get_sector S110 with economy jp), not weekly.")
-    view = (euweekly if economy == "ea" else fedweekly).view(con)
+    module = economies.weekly(economy)
+    if module is None:
+        raise ToolError(f"No weekly central bank balance sheet is loaded for {economies.ECONOMIES[economy]['name']}; its central bank "
+                        "is in the quarterly accounts only (for Japan, get_sector S110 with economy jp).")
+    view = module.view(con)
     if view is None:
         raise ToolError("The weekly central bank balance sheet is not loaded for this economy.")
-    euro = economy == "ea"
-    # What differs between the two central banks' weekly statements, for the tool output.
-    view["_"] = {"prefix": "ECB weekly statement" if euro else "H.4.1", "total": euweekly.TOTAL if euro else "RESPPMA",
-                 "currency": "EUR" if euro else "USD", "day": view["weekday"],
-                 "valuation": "securities held for monetary policy at amortised cost" if euro else "securities at face value"}
+    # What differs between the central banks' weekly statements, for the tool output.
+    view["_"] = {**module.CITE, "day": view["weekday"]}
     return view
 
 
@@ -1091,7 +1064,7 @@ REGISTRY: dict[str, tuple[Any, str, dict]] = {
                  "period": _PERIOD, "compare_to": _COMPARE, "economy": _ECONOMY}, ["sector_id"])),
     "get_history": (get_history,
         "Time series for up to six positions, by series id (taken from get_instrument or get_sector results, for either "
-        "economy; one economy per call, and no share of GDP for the euro area): amount "
+        "economy; one economy per call): amount "
         "outstanding, net transactions and valuation change per period, optionally as a share of GDP. Defaults to the last "
         "ten years, quarterly. Use this for trends, peaks and turning points.",
         _schema({"series": {"type": "array", "items": {"type": "string"}, "description": "One to six series ids such as LM263061105.Q."},

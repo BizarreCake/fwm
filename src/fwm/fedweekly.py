@@ -26,6 +26,8 @@ SOURCE_ID = "fed_h41"
 SOURCE_NAME = "Federal Reserve H.4.1, Factors Affecting Reserve Balances"
 SOURCE_URL = "https://www.federalreserve.gov/releases/h41/"
 TOTAL = "RESPPMA"  # total assets, consolidated; equal to total liabilities and capital
+# How the assistant's tool cites this statement.
+CITE = {"prefix": "H.4.1", "total": TOTAL, "currency": "USD", "valuation": "securities at face value"}
 
 # (id, name, H.4.1 series added together, children). A leading "-" subtracts a series.
 Line = tuple[str, str, tuple[str, ...], tuple]

@@ -1,12 +1,8 @@
 """Context for the euro area's accounts: interest rates, GDP, ECB announcements, and the dollar exchange rate.
 
-The euro-area counterpart of context.py and rates.py, in the same shape, so that the
-same charts can show it. Everything comes from the ECB's data API, one small CSV per series.
-
-    ea_rate_series(series_id, name, short_name, source_series, shown)
-    ea_rates_daily(series_id, date, value)
-    ea_gdp(period, value)            -- nominal, EUR millions, per quarter, not seasonally adjusted
-    fx_daily(pair, date, value)      -- 'USD/EUR': US dollars per euro, ECB reference rate
+The euro-area counterpart of context.py and rates.py, with the same interface. Everything comes
+from the ECB's data API, one small CSV per series, and goes into the tables shared by all
+economies (see contextbase.py) as economy `ea` and exchange-rate pair `USD/EUR` (dollars per euro).
 """
 
 from __future__ import annotations
@@ -18,11 +14,15 @@ from pathlib import Path
 
 import duckdb
 
-from fwm import context, ddp, euroarea
+from fwm import contextbase, ddp, euroarea
 
-SOURCE_ID = "ecb_context"
-SOURCE_NAME = "ECB Data Portal: key interest rates, euro area yield curve, national accounts, reference exchange rates"
 SOURCE_URL = "https://data.ecb.europa.eu/"
+# release id -> name, as recorded in source_release
+RELEASES = {
+    "ecb_rates": "ECB key interest rates and euro area yield curve",
+    "ecb_gdp": "ECB national accounts: euro area GDP",
+    "ecb_fx": "ECB euro foreign exchange reference rates: US dollar",
+}
 API = "https://data-api.ecb.europa.eu/service/data/{key}?detail=dataonly&format=csvdata"
 EVENTS_PATH = Path(__file__).with_name("events_ea.csv")
 RELEASE_URL = "https://www.ecb.europa.eu/press/pr/date/{release}"
@@ -38,6 +38,15 @@ RATES = {
 GDP_KEY = "MNA/Q.N.I10.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.V.N"
 FX_KEY = "EXR/D.USD.EUR.SP00.A"
 FX_PAIR = "USD/EUR"
+ECONOMY = "ea"
+CENTRAL_BANK = "ECB"
+CENTRAL_BANK_NAME = "European Central Bank"
+EVENTS_COVERAGE = ("A hand-curated calendar of major ECB announcements from late 2008: rate turning points, asset "
+                   "purchase and runoff decisions, and lending operations for banks. Not every Governing Council "
+                   "meeting, and nothing from governments or other central banks.")
+POLICY_NOTE = ("The ten most recent changes in the deposit facility rate, by the day each took "
+               "effect (a few days after the decision was announced).")
+FX_FIELD = ("usd_per_eur_at_quarter_end", False)  # name in the tool's answer, and whether to invert usd_per_unit
 FILES = {**{series_id: key for series_id, (key, _, _, _) in RATES.items()}, "gdp": GDP_KEY, "fx": FX_KEY}
 
 
@@ -63,93 +72,57 @@ def _read(path: Path) -> list[tuple[str, float]]:
 def ingest(raw_dir: Path, db_path: Path) -> dict:
     con = duckdb.connect(str(db_path))
     try:
-        con.execute("CREATE OR REPLACE TABLE ea_rate_series (series_id VARCHAR, name VARCHAR, short_name VARCHAR, source_series VARCHAR, shown BOOLEAN)")
-        con.execute("CREATE OR REPLACE TABLE ea_rates_daily (series_id VARCHAR, date DATE, value DOUBLE)")
-        con.execute("CREATE OR REPLACE TABLE ea_gdp (period VARCHAR, value DOUBLE)")
-        con.execute("CREATE OR REPLACE TABLE fx_daily (pair VARCHAR, date DATE, value DOUBLE)")
-        latest = None
-        for series_id, (key, name, short_name, shown) in RATES.items():
-            rows = _read(raw_dir / f"{series_id}.csv")
-            con.execute("INSERT INTO ea_rate_series VALUES (?, ?, ?, ?, ?)", [series_id, name, short_name, key.replace("/", "."), shown])
-            con.executemany("INSERT INTO ea_rates_daily VALUES (?, ?, ?)", [(series_id, date, value) for date, value in rows])
-            latest = max(latest or rows[-1][0], rows[-1][0])
+        rows = {series_id: _read(raw_dir / f"{series_id}.csv") for series_id in RATES}
+        contextbase.replace_rates(con, ECONOMY, {series_id: (name, short_name, key.replace("/", "."), shown)
+                                                 for series_id, (key, name, short_name, shown) in RATES.items()}, rows)
+        latest = max(series[-1][0] for series in rows.values())
         gdp = [(period.replace("-Q", ":Q"), value) for period, value in _read(raw_dir / "gdp.csv")]
-        con.executemany("INSERT INTO ea_gdp VALUES (?, ?)", gdp)
+        contextbase.replace_gdp(con, ECONOMY, gdp)
         fx = _read(raw_dir / "fx.csv")
-        con.executemany("INSERT INTO fx_daily VALUES (?, ?, ?)", [(FX_PAIR, date, value) for date, value in fx])
+        contextbase.replace_fx(con, FX_PAIR, fx)
         fetched = dt.datetime.fromtimestamp((raw_dir / "gdp.csv").stat().st_mtime, dt.timezone.utc)
-        ddp.record_release(con, SOURCE_ID, SOURCE_NAME, SOURCE_URL, fetched, latest)
+        ddp.forget_release(con, "ecb_context")
+        for release_id, period in (("ecb_rates", latest), ("ecb_gdp", gdp[-1][0]), ("ecb_fx", fx[-1][0])):
+            ddp.record_release(con, release_id, RELEASES[release_id], SOURCE_URL, fetched, period)
     finally:
         con.close()
     return {"rates_latest": latest, "gdp_latest": gdp[-1][0], "fx_latest": fx[-1][0]}
 
 
 def available(con: duckdb.DuckDBPyConnection) -> bool:
-    return bool(con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'ea_gdp'").fetchone()[0])
+    return contextbase.has_gdp(con, ECONOMY)
 
 
 def load_events() -> list[dict]:
     """The curated calendar. Every entry cites the ECB press release it summarises."""
-    with EVENTS_PATH.open(newline="", encoding="utf-8") as source:
-        rows = list(csv.DictReader(source))
-    return [{"date": row["date"], "period": context.quarter_of(dt.date.fromisoformat(row["date"])), "kind": row["kind"],
-             "title": row["title"], "detail": row["detail"], "url": RELEASE_URL.format(release=row["release"])} for row in rows]
+    return contextbase.load_events(EVENTS_PATH, RELEASE_URL)
 
 
 def gdp(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]:
     """Nominal GDP over the four quarters ending in each quarter, EUR millions."""
-    rows = dict(con.execute(
-        "SELECT period, CASE WHEN count(*) OVER w = 4 THEN sum(value) OVER w END FROM ea_gdp "
-        "WINDOW w AS (ORDER BY period ROWS BETWEEN 3 PRECEDING AND CURRENT ROW)").fetchall())
-    return [rows.get(label) for label in labels]
+    return contextbase.gdp(con, ECONOMY, labels)
 
 
-def fx_quarter_end(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]:
+def usd_per_unit(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]:
     """US dollars per euro on the last day of each quarter that has a rate."""
-    rows = dict(con.execute(
-        "SELECT year(date) || ':Q' || quarter(date), arg_max(value, date) FROM fx_daily WHERE pair = ? GROUP BY 1", [FX_PAIR]).fetchall())
-    return [rows.get(label) for label in labels]
+    return contextbase.fx_quarter_end(con, FX_PAIR, labels)
 
 
 def policy_changes(con: duckdb.DuckDBPyConnection, last: int = 10) -> list[dict]:
     """The most recent days on which the deposit facility rate took a new value, oldest first."""
-    rows = con.execute(
-        "SELECT date, value, previous FROM (SELECT date, value, lag(value) OVER (ORDER BY date) AS previous "
-        "FROM ea_rates_daily WHERE series_id = 'policy') WHERE previous IS NOT NULL AND value <> previous ORDER BY date").fetchall()
-    return [{"effective": date.isoformat(), "rate": value, "previous_rate": previous} for date, value, previous in rows[-last:]]
+    return contextbase.policy_changes(con, ECONOMY, last)
 
 
 def view(con: duckdb.DuckDBPyConnection) -> dict:
     labels = euroarea.periods(con)
-    index = {label: i for i, label in enumerate(labels)}
-    n = len(labels)
-    averages: dict[str, list] = {}
-    for series_id, year, quarter, value in con.execute(
-            "SELECT series_id, year(date), quarter(date), avg(value) FROM ea_rates_daily GROUP BY ALL").fetchall():
-        i = index.get(f"{year}:Q{quarter}")
-        if i is not None:
-            averages.setdefault(series_id, [None] * n)[i] = round(value, 4)
-    latest = {series_id: (date, value) for series_id, date, value in con.execute(
-        "SELECT series_id, max(date), arg_max(value, date) FROM ea_rates_daily GROUP BY 1").fetchall()}
-    rates = [{"id": series_id, "name": name, "short_name": short_name, "source_series": source_series, "shown": shown,
-              "values": averages.get(series_id, [None] * n),
-              "latest": {"date": latest[series_id][0].isoformat(), "value": latest[series_id][1]}}
-             for series_id, name, short_name, source_series, shown in con.execute(
-                 "SELECT series_id, name, short_name, source_series, shown FROM ea_rate_series").fetchall()]
-    events = [dict(event, index=index[event["period"]]) for event in load_events() if event["period"] in index]
-    sources = {source_id: {"name": name, "url": url, "latest": latest_period} for source_id, name, url, latest_period in
-               con.execute("SELECT source_id, name, url, latest_period FROM source_release").fetchall()}
-    return {
-        "economy": "ea",
-        "central_bank": "ECB",
-        "periods": labels,
-        "rates": rates,
-        "gdp": {"series": GDP_KEY.replace("/", "."), "unit": "EUR millions", "values": gdp(con, labels)},
-        "fx": {"pair": FX_PAIR, "series": FX_KEY.replace("/", "."), "values": fx_quarter_end(con, labels)},
-        "events": events,
-        "event_kinds": EVENT_KINDS,
-        "sources": sources,
-        "notes": {
+    return contextbase.view(
+        con, economy=ECONOMY, central_bank=CENTRAL_BANK, labels=labels,
+        gdp={"series": GDP_KEY.replace("/", "."), "unit": "EUR millions", "values": gdp(con, labels)},
+        fx={"pair": FX_PAIR, "series": FX_KEY.replace("/", "."), "values": usd_per_unit(con, labels)},
+        events=load_events(), event_kinds=EVENT_KINDS,
+        notes={
+            "source": "ECB: key interest rates, euro area AAA government yield curve, national accounts series "
+                      + GDP_KEY.replace("/", ".") + ", reference exchange rate",
             "rates": "Quarterly averages of daily rates, percent per year. The deposit facility rate is the ECB's policy "
                      "rate; yields are the ECB's curve for AAA-rated euro area government bonds, from September 2004. "
                      "Source: ECB.",
@@ -157,5 +130,4 @@ def view(con: duckdb.DuckDBPyConnection) -> dict:
                    "(ECB national accounts, not seasonally adjusted, summed).",
             "events": "Events are ECB announcements, dated by their press release. They are shown for reference; a marker "
                       "next to a change does not show that one caused the other.",
-        },
-    }
+        })

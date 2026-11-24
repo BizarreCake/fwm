@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import duckdb
 
-from fwm import context, eacontext, economies, euroarea, japan, jpcontext, systemmap
+from fwm import economies, systemmap
 
 # Row -> the system-map families that make it up in each economy.
 INSTRUMENTS = (
@@ -45,11 +45,15 @@ ALL = ("us", "ea", "jp")
 
 def order(con: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
     """The economies compared: Japan joins when its accounts and GDP are loaded."""
-    return ALL if japan.available(con) and jpcontext.available(con) else ALL[:2]
+    return ALL if _loaded(con, "jp") else ALL[:2]
+
+
+def _loaded(con: duckdb.DuckDBPyConnection, economy: str) -> bool:
+    return economies.available(con, economy) and economies.context(economy).available(con)
 
 
 def available(con: duckdb.DuckDBPyConnection) -> bool:
-    return euroarea.available(con) and eacontext.available(con) and systemmap.load(con, "ea") is not None
+    return _loaded(con, "ea") and systemmap.load(con, "ea") is not None
 
 
 def view(con: duckdb.DuckDBPyConnection) -> dict | None:
@@ -59,12 +63,9 @@ def view(con: duckdb.DuckDBPyConnection) -> dict | None:
     maps = {economy: systemmap.load(con, economy) or systemmap.compute(con, economy) for economy in ORDER}
     periods = [period for period in maps["ea"]["periods"] if all(period in maps[economy]["periods"] for economy in ORDER)]
     at = {economy: [maps[economy]["periods"].index(period) for period in periods] for economy in ORDER}
-    gdp = {"us": context.gdp(con, periods), "ea": eacontext.gdp(con, periods)}
-    rate = eacontext.fx_quarter_end(con, periods)  # US dollars per euro
-    to_usd = {"us": [1.0] * len(periods), "ea": rate}
-    if "jp" in ORDER:
-        gdp["jp"] = jpcontext.gdp(con, periods)
-        to_usd["jp"] = jpcontext.usd_per_yen_quarter_end(con, periods)
+    gdp = {economy: economies.context(economy).gdp(con, periods) for economy in ORDER}
+    to_usd = {economy: economies.context(economy).usd_per_unit(con, periods) for economy in ORDER}
+    rate = to_usd["ea"]  # US dollars per euro
 
     def measures(economy: str, native: list[float] | None) -> dict:
         if native is None:

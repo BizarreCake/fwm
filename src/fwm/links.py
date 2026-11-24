@@ -35,7 +35,11 @@ import duckdb
 
 from fwm import ddp
 
-SOURCE_ID = "links"
+# release id -> (name, page, the kinds it covers), as recorded in source_release
+RELEASES = {
+    "imf_pip": ("IMF, Portfolio Investment Positions by Counterpart Economy", "https://data.imf.org/en/datasets/IMF.STA:PIP", ("equity", "debt")),
+    "bis_lbs": ("BIS, Locational Banking Statistics", "https://data.bis.org/topics/LBS", ("bank_claims", "bank_liabilities")),
+}
 SOURCE_NAME = "IMF portfolio investment positions and BIS locational banking statistics, by counterpart country"
 SOURCE_URL = "https://data.imf.org/en/datasets/IMF.STA:PIP"
 IMF_API = ("https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.STA/PIP/+/"
@@ -139,9 +143,11 @@ def ingest(raw_dir: Path, db_path: Path) -> dict:
         if not rows:
             raise RuntimeError("Cross-border downloads hold no values")
         fetched = dt.datetime.fromtimestamp((raw_dir / _file("equity")).stat().st_mtime, dt.timezone.utc)
-        ddp.record_release(con, SOURCE_ID, SOURCE_NAME, SOURCE_URL, fetched, latest)
-        build(con)
         by_kind = dict(con.execute("SELECT kind, max(period) FROM xb_positions GROUP BY kind").fetchall())
+        ddp.forget_release(con, "links")
+        for release_id, (name, url, kind_ids) in RELEASES.items():
+            ddp.record_release(con, release_id, name, url, fetched, max(by_kind[kind_id] for kind_id in kind_ids))
+        build(con)
     finally:
         con.close()
     return {"observations": rows, "latest": by_kind}

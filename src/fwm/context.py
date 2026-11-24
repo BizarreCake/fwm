@@ -12,6 +12,8 @@ from pathlib import Path
 
 import duckdb
 
+from fwm import contextbase
+from fwm.contextbase import quarter_of  # noqa: F401  (used across the project under this name)
 from fwm.structure import START
 
 EVENTS_PATH = Path(__file__).with_name("events.csv")
@@ -20,25 +22,30 @@ GDP_SERIES = "FU086902005.Q"  # GDP, quarterly, not annualised, not seasonally a
 EVENT_KINDS = {"rate": "Policy rate", "balance_sheet": "Fed balance sheet", "facility": "Lending facility"}
 
 
-def quarter_of(date: dt.date) -> str:
-    return f"{date.year}:Q{(date.month - 1) // 3 + 1}"
+ECONOMY = "us"
+CENTRAL_BANK = "Fed"
+CENTRAL_BANK_NAME = "Federal Reserve"
+EVENTS_COVERAGE = None  # the tool describes the Fed calendar itself
+POLICY_NOTE = None
+FX_FIELD = None  # amounts are already in US dollars
+
+
+def available(con: duckdb.DuckDBPyConnection) -> bool:
+    return bool(con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name = 'z1_observations'").fetchone()[0])
 
 
 def load_events() -> list[dict]:
     """The curated calendar. Every entry cites the Federal Reserve press release it summarises."""
-    with EVENTS_PATH.open(newline="", encoding="utf-8") as source:
-        rows = list(csv.DictReader(source))
-    return [
-        {
-            "date": row["date"],
-            "period": quarter_of(dt.date.fromisoformat(row["date"])),
-            "kind": row["kind"],
-            "title": row["title"],
-            "detail": row["detail"],
-            "url": RELEASE_URL.format(release=row["release"]),
-        }
-        for row in rows
-    ]
+    return contextbase.load_events(EVENTS_PATH, RELEASE_URL)
+
+
+def policy_changes(con: duckdb.DuckDBPyConnection, last: int = 10) -> list[dict]:
+    """None: the fed funds rate loaded is the daily effective rate, not the target, so it has no clean change dates."""
+    return []
+
+
+def usd_per_unit(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]:
+    return [1.0] * len(labels)
 
 
 def periods(con: duckdb.DuckDBPyConnection) -> list[str]:
@@ -63,54 +70,15 @@ def gdp(con: duckdb.DuckDBPyConnection, labels: list[str]) -> list[float | None]
 
 def view(con: duckdb.DuckDBPyConnection) -> dict:
     labels = periods(con)
-    index = {label: i for i, label in enumerate(labels)}
-    n = len(labels)
-
-    rates = []
-    has_rates = con.execute(
-        "SELECT count(*) FROM information_schema.tables WHERE table_name = 'rates_daily'"
-    ).fetchone()[0]
-    if has_rates:
-        averages: dict[str, list] = {}
-        for series_id, year, quarter, value in con.execute(
-            "SELECT series_id, year(date), quarter(date), avg(value) FROM rates_daily GROUP BY ALL"
-        ).fetchall():
-            i = index.get(f"{year}:Q{quarter}")
-            if i is not None:
-                averages.setdefault(series_id, [None] * n)[i] = round(value, 4)
-        latest = {series_id: (date, value) for series_id, date, value in con.execute(
-            "SELECT series_id, max(date), arg_max(value, date) FROM rates_daily GROUP BY 1"
-        ).fetchall()}
-        for series_id, name, short_name, source_series in con.execute(
-            "SELECT series_id, name, short_name, source_series FROM rate_series"
-        ).fetchall():
-            rates.append({
-                "shown": series_id != "treasury_3m",
-                "id": series_id,
-                "name": name,
-                "short_name": short_name,
-                "source_series": source_series,
-                "values": averages.get(series_id, [None] * n),
-                "latest": {"date": latest[series_id][0].isoformat(), "value": latest[series_id][1]},
-            })
-
-    events = [dict(event, index=index[event["period"]]) for event in load_events() if event["period"] in index]
-    sources = {source_id: {"name": name, "url": url, "latest": latest_period} for source_id, name, url, latest_period in
-               con.execute("SELECT source_id, name, url, latest_period FROM source_release").fetchall()}
-    return {
-        "economy": "us",
-        "central_bank": "Fed",
-        "periods": labels,
-        "rates": rates,
-        "gdp": {"series": GDP_SERIES, "unit": "USD millions", "values": gdp(con, labels)},
-        "events": events,
-        "event_kinds": EVENT_KINDS,
-        "sources": sources,
-        "notes": {
+    return contextbase.view(
+        con, economy=ECONOMY, central_bank=CENTRAL_BANK, labels=labels,
+        gdp={"series": GDP_SERIES, "unit": "USD millions", "values": gdp(con, labels)},
+        events=load_events(), event_kinds=EVENT_KINDS,
+        notes={
+            "source": "Federal Reserve H.15 (rates); Z.1 series " + GDP_SERIES + " (GDP)",
             "rates": "Quarterly averages of daily rates, percent per year. Source: Federal Reserve H.15.",
             "gdp": "Share of GDP divides by nominal GDP over the four quarters ending in that quarter (Z.1 series "
                    f"{GDP_SERIES}, summed).",
             "events": "Events are Federal Reserve announcements, dated by their press release. They are shown for "
                       "reference; a marker next to a change does not show that one caused the other.",
-        },
-    }
+        })

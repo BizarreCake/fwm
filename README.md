@@ -22,14 +22,12 @@ Instrument and sector pages link to each other, so you can walk from an instrume
 
 ## Run
 
+Every source, its tables, how often it is published and how to refresh it are described in [docs/sources.md](docs/sources.md), which is written from the registry in `src/fwm/sources.py`.
+
 ```sh
-uv run fwm ingest          # download Z.1, H.15, H.4.1, TIC and the ECB accounts into data/fwm.duckdb (a few minutes)
-uv run fwm ingest --only rates        # refresh just the daily interest rates (seconds)
-uv run fwm ingest --only fed-weekly   # refresh just the weekly Fed balance sheet (seconds)
-uv run fwm ingest --only tic          # refresh just foreign holdings by country (seconds)
-uv run fwm ingest --only ecb          # refresh everything for the euro area: accounts, rates, GDP, weekly Eurosystem (under a minute)
-uv run fwm ingest --only boj          # refresh Japan: accounts, rates, GDP (under a minute)
-uv run fwm ingest --only links        # refresh positions between economies (IMF and BIS; about four minutes)
+uv run fwm ingest          # download every source into data/fwm.duckdb (several minutes)
+uv run fwm status          # what is loaded from each source, and which have newer data out
+uv run fwm ingest --only rates        # refresh one group: z1, rates, fed-weekly, tic, ecb, boj or links
 cd web && npm install && npm run build && cd ..
 uv run pytest              # accounting checks on the data, and a browser run through the UI
 uv run fwm serve           # http://127.0.0.1:8000
@@ -89,6 +87,7 @@ For UI development, run `uv run fwm serve --reload` and `npm run dev` in `web/` 
 - `src/fwm/eacontext.py`: euro-area rates, GDP, ECB announcements (`events_ea.csv`) and the dollar exchange rate.
 - `src/fwm/euweekly.py`: the Eurosystem's weekly balance sheet, in the same shape as the weekly Fed data.
 - `src/fwm/boj.py`, `src/fwm/japan.py`, `src/fwm/jpcontext.py`: Japan's accounts from the Bank of Japan's flow of funds, and its rates, GDP and announcements.
+- `src/fwm/sources.py`: the registry of sources that `fwm ingest`, `fwm status` and `docs/sources.md` are driven by. `src/fwm/economies.py`: one lookup for each economy's accounts, rates and GDP, periods and weekly data; `src/fwm/contextbase.py`: the rates, GDP and exchange-rate tables they share.
 - `src/fwm/links.py`: positions between economies from the IMF's portfolio survey and the BIS banking statistics.
 - `src/fwm/compare.py`: the economies side by side, in dollars and as a share of GDP.
 - `src/fwm/ddp.py`: reader for the Fed's download packages (H.15, H.4.1).

@@ -3,8 +3,10 @@
 The download is one zip holding an SDMX XML file with every H.15 series. We keep
 the business-day series for a handful of benchmark rates:
 
-    rate_series(series_id, name, short_name, description)
-    rates_daily(series_id, date, value)       -- percent per year
+    rate_series(economy, series_id, name, short_name, source_series, shown)
+    rates_daily(economy, series_id, date, value)       -- percent per year
+
+Both tables are shared with the other economies (see contextbase.py); these are the rows for `us`.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from pathlib import Path
 
 import duckdb
 
-from fwm import ddp
+from fwm import contextbase, ddp
 
 SOURCE_ID = "fed_h15"
 
@@ -44,18 +46,14 @@ def ingest(raw_dir: Path, db_path: Path) -> dict:
         raise RuntimeError(f"H.15 download has no observations for {missing}")
     con = duckdb.connect(str(db_path))
     try:
-        con.execute("CREATE OR REPLACE TABLE rate_series (series_id VARCHAR, name VARCHAR, short_name VARCHAR, source_series VARCHAR)")
-        con.execute("CREATE OR REPLACE TABLE rates_daily (series_id VARCHAR, date DATE, value DOUBLE)")
-        for source_series, (series_id, name, short_name) in SERIES.items():
-            con.execute("INSERT INTO rate_series VALUES (?, ?, ?, ?)", [series_id, name, short_name, source_series])
-            con.executemany(
-                "INSERT INTO rates_daily VALUES (?, ?, ?)",
-                [(series_id, date, value) for date, value in observations[source_series]],
-            )
-        latest = con.execute("SELECT max(date) FROM rates_daily").fetchone()[0]
+        contextbase.replace_rates(
+            con, "us",
+            {series_id: (name, short_name, source_series, series_id != "treasury_3m") for source_series, (series_id, name, short_name) in SERIES.items()},
+            {series_id: observations[source_series] for source_series, (series_id, _, _) in SERIES.items()})
+        latest = con.execute("SELECT max(date) FROM rates_daily WHERE economy = 'us'").fetchone()[0]
         ddp.record_release(con, SOURCE_ID, "Federal Reserve H.15, Selected Interest Rates",
                            "https://www.federalreserve.gov/releases/h15/", prepared, latest.isoformat())
-        count = con.execute("SELECT count(*) FROM rates_daily").fetchone()[0]
+        count = con.execute("SELECT count(*) FROM rates_daily WHERE economy = 'us'").fetchone()[0]
     finally:
         con.close()
     return {"observations": count, "latest": latest.isoformat()}

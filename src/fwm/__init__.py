@@ -4,24 +4,23 @@ import argparse
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-RAW_Z1 = ROOT / "data" / "raw" / "z1"
-RAW_H15 = ROOT / "data" / "raw" / "h15"
-RAW_H41 = ROOT / "data" / "raw" / "h41"
-RAW_TIC = ROOT / "data" / "raw" / "tic"
-RAW_ECB = ROOT / "data" / "raw" / "ecb"
-RAW_BOJ = ROOT / "data" / "raw" / "boj"
-RAW_LINKS = ROOT / "data" / "raw" / "links"
-DB_PATH = ROOT / "data" / "fwm.duckdb"
+from fwm.sources import DB_PATH, ROOT
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="fwm")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    ingest = sub.add_parser("ingest", help="Download the Z.1 accounts, H.15 interest rates and H.4.1 weekly Fed balance sheet into DuckDB")
+    from fwm import sources
+
+    ingest = sub.add_parser("ingest", help="Download every source and load it into DuckDB")
     ingest.add_argument("--no-download", action="store_true", help="Reuse the files already in data/raw")
-    ingest.add_argument("--only", choices=["z1", "rates", "fed-weekly", "tic", "ecb", "boj", "links"], help="Refresh one source instead of all")
+    ingest.add_argument("--only", choices=sources.names(), help="Refresh one group of sources, or one source, instead of all")
+
+    sub.add_parser("status", help="Show what is loaded from each source and whether newer data has probably been published")
+
+    describe = sub.add_parser("sources", help="Print the description of every source and table (docs/sources.md)")
+    describe.add_argument("--write", action="store_true", help="Write it to docs/sources.md")
 
     ask = sub.add_parser("ask", help="Ask the agent one question from the command line")
     ask.add_argument("question")
@@ -37,57 +36,28 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "ingest":
-        from fwm import boj, eacontext, ecb, jpcontext, euweekly, fedweekly, links, rates, tic, z1
+        for source in sources.selected(args.only):
+            print(sources.load(source, download=not args.no_download))
+    elif args.command == "status":
+        import duckdb
 
-        if args.only in (None, "z1"):
-            if not args.no_download:
-                published = z1.download(RAW_Z1)
-                print(f"Downloaded Z.1 release (published {published})")
-            z1.archive(RAW_Z1)
-            summary = z1.ingest(RAW_Z1, DB_PATH)
-            print(f"Loaded {summary['observations']:,} observations across {summary['series']:,} series; "
-                  f"latest quarter {summary['latest_period']}")
-        if args.only in (None, "rates"):
-            if not args.no_download:
-                rates.download(RAW_H15)
-            summary = rates.ingest(RAW_H15, DB_PATH)
-            print(f"Loaded {summary['observations']:,} daily interest rates; latest {summary['latest']}")
-        if args.only in (None, "fed-weekly"):
-            if not args.no_download:
-                fedweekly.download(RAW_H41)
-            summary = fedweekly.ingest(RAW_H41, DB_PATH)
-            print(f"Loaded {summary['observations']:,} weekly Fed balance sheet values; latest {summary['latest']}")
-        if args.only in (None, "tic"):
-            if not args.no_download:
-                tic.download(RAW_TIC)
-            summary = tic.ingest(RAW_TIC, DB_PATH)
-            print(f"Loaded foreign holdings of US securities for {summary['countries']} countries; latest {summary['latest']}")
-        if args.only in (None, "ecb"):
-            if not args.no_download:
-                ecb.download(RAW_ECB)
-                eacontext.download(RAW_ECB / "context")
-                euweekly.download(RAW_ECB / "weekly")
-            weekly_summary = euweekly.ingest(RAW_ECB / "weekly", DB_PATH)
-            print(f"Loaded {weekly_summary['weeks']:,} weeks of the Eurosystem's balance sheet; latest {weekly_summary['latest']}")
-            context_summary = eacontext.ingest(RAW_ECB / "context", DB_PATH)
-            print(f"Loaded euro-area rates to {context_summary['rates_latest']}, GDP to {context_summary['gdp_latest']}, "
-                  f"dollar exchange rate to {context_summary['fx_latest']}")
-            summary = ecb.ingest(RAW_ECB, DB_PATH)
-            print(f"Loaded {summary['observations']:,} euro-area observations in {summary['series']:,} series; latest {summary['latest']}")
-        if args.only in (None, "boj"):
-            if not args.no_download:
-                boj.download(RAW_BOJ)
-                jpcontext.download(RAW_BOJ / "context")
-            context_summary = jpcontext.ingest(RAW_BOJ / "context", DB_PATH)
-            print(f"Loaded Japanese rates to {context_summary['rates_latest']}, GDP to {context_summary['gdp_latest']}, "
-                  f"yen exchange rate to {context_summary['fx_latest']}")
-            summary = boj.ingest(RAW_BOJ, DB_PATH)
-            print(f"Loaded {summary['observations']:,} Japanese observations in {summary['series']:,} series; latest {summary['latest']}")
-        if args.only in (None, "links"):
-            if not args.no_download:
-                links.download(RAW_LINKS)
-            summary = links.ingest(RAW_LINKS, DB_PATH)
-            print(f"Loaded {summary['observations']:,} positions between countries; latest {summary['latest']}")
+        con = duckdb.connect(str(DB_PATH), read_only=True)
+        rows = sources.status(con)
+        print(f"{'Release':58} {'Latest':11} {'Loaded on':11} {'Next usually out':17} State")
+        for row in rows:
+            print(f"{row['what'][:57]:58} {row['latest'] or '-':11} {row['loaded_on'] or '-':11} {row['next_due'] or '-':17} {row['state']}")
+        stale = list(dict.fromkeys(row["refresh"] for row in rows if row["state"] != "current"))
+        if stale:
+            print("\nTo refresh:\n" + "\n".join(f"  {command}" for command in stale))
+        leftover = sources.unregistered(con)
+        if leftover:
+            print(f"\nRelease rows no source claims (reload their source to clear them): {', '.join(leftover)}")
+    elif args.command == "sources":
+        if args.write:
+            sources.DOC_PATH.write_text(sources.render(), encoding="utf-8")
+            print(f"Wrote {sources.DOC_PATH}")
+        else:
+            print(sources.render())
     elif args.command in ("ask", "bench"):
         import json
         import time

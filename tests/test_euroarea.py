@@ -170,9 +170,10 @@ def test_assistant_tools_read_the_euro_area_in_euro(con):
     assert history["unit"] == "EUR billions" and history["series"][0]["observations"][-1]["amount"] == banks["sectors"][0]["amount"]
     sheet = tools.run(con, "get_sector", {"sector_id": "S1M", "economy": "ea"})
     assert sheet["link"].startswith("#/ea/sector/S1M") and sheet["assets"]["total"]["amount"] > 30_000
-    for bad in ({"series": [series], "share_of_gdp": True}, {"series": [series, "LM263061105.Q"]}):
-        with pytest.raises(tools.ToolError):
-            tools.run(con, "get_history", bad)
+    shared = tools.run(con, "get_history", {"series": [series], "share_of_gdp": True, "start": "2025:Q1"})
+    assert 5 < shared["series"][0]["observations"][-1]["amount_pct_of_gdp"] < 400
+    with pytest.raises(tools.ToolError):
+        tools.run(con, "get_history", {"series": [series, "LM263061105.Q"]})
     with pytest.raises(tools.ToolError):
         tools.run(con, "get_sector", {"sector_id": "S12K"})  # without the economy, this is a US lookup
     assert tools.run(con, "get_sector", {"sector_id": "S121"})["unit"] == "USD billions"

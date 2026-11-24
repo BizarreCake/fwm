@@ -126,6 +126,17 @@ Still open for the euro area: member countries, holdings by country, and vintage
 - **Known.** Debt securities are not split into government and other. What others report about a country leaves out
   reserves and non-reporting countries. Countries outside the US Treasury list have no page.
 
+## Cleanup: source registry and one interface per economy
+
+- **Registry.** `src/fwm/sources.py` lists every source: its tables, releases, publication frequency, refresh command
+  and what it is read with. `fwm ingest` runs from it; `fwm status` shows what is loaded and what is probably stale;
+  `docs/sources.md` is written from it and a test fails if the two drift apart.
+- **Finer records.** The cross-border data is recorded as IMF and BIS separately, and the rates/GDP sources one by one.
+- **Rates and GDP.** The three near-copies now share `contextbase.py` and four tables keyed by economy. The tools,
+  API and comparison reach an economy's accounts, context, periods and weekly data through `economies.py`, with no
+  per-economy branches left in them. Share of GDP now also works for euro-area series in the history tool.
+- **Not done.** Past downloads are still not kept for the cross-border files, rates and weekly data.
+
 ## Next
 
 1. The UK as a fourth economy. Its data has not been examined. (Paused here at the user's request.)
