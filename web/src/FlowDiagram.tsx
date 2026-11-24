@@ -1,90 +1,157 @@
-import type { Group } from "./types";
+import type { Group, SideName } from "./types";
 import { color, pct, useWidth } from "./util";
 
 interface Props {
-  groups: Group[];
+  name: string;
+  issuers: Group[] | null;
+  holders: Group[];
   period: number;
-  selected: string;
-  onSelect: (id: string) => void;
+  selected: { side: SideName; id: string };
+  onSelect: (side: SideName, id: string) => void;
 }
 
 const HEIGHT = 380;
+const TOP = 18;
 const GAP = 6;
 const MIN_SLOT = 20;
 const NODE = 12;
-const LABEL_WIDTH = 220;
 
-/** Issuer on the left, holder groups on the right; band width = share of holdings. */
-export function FlowDiagram({ groups, period, selected, onSelect }: Props) {
-  const [ref, width] = useWidth<HTMLDivElement>();
-  const values = groups.map((g) => Math.max(0, g.level[period]));
-  const total = values.reduce((a, b) => a + b, 0) || 1;
-  const shares = values.map((v) => v / total);
+interface Band {
+  group: Group;
+  share: number;
+  height: number;
+  innerY: number;
+  outerY: number;
+  slotY: number;
+  slot: number;
+}
 
-  // Each holder gets a slot at least MIN_SLOT tall so labels never collide;
-  // the band itself keeps its true proportional height.
-  const available = HEIGHT - GAP * (groups.length - 1);
-  let scale = available;
-  for (let pass = 0; pass < 4; pass++) {
-    const small = shares.filter((s) => s * scale < MIN_SLOT);
-    const smallShare = small.reduce((a, b) => a + b, 0);
-    scale = (available - small.length * MIN_SLOT) / (1 - smallShare || 1);
+const value = (group: Group, period: number) => Math.max(0, group.level[period] ?? 0);
+
+/** Largest pixels-per-unit at which a side fits, giving every group a slot tall enough for its label. */
+function fit(values: number[], available: number): number {
+  const total = values.reduce((a, b) => a + b, 0);
+  if (!total) return 0;
+  let scale = (available - GAP * (values.length - 1)) / total;
+  for (let pass = 0; pass < 6; pass++) {
+    const small = values.filter((v) => v * scale < MIN_SLOT);
+    const rest = total - small.reduce((a, b) => a + b, 0);
+    if (!rest) break;
+    scale = (available - GAP * (values.length - 1) - small.length * MIN_SLOT) / rest;
   }
+  return Math.max(0, scale);
+}
 
-  const right = Math.max(120, width - LABEL_WIDTH);
-  let sourceY = (HEIGHT - scale) / 2;
-  let slotY = 0;
-  const bands = groups.map((group, i) => {
-    const height = shares[i] * scale;
-    const slot = Math.max(height, MIN_SLOT);
-    const band = { group, share: shares[i], height, sourceY, targetY: slotY + (slot - height) / 2, slotY, slot };
-    sourceY += height;
-    slotY += slot + GAP;
+function layout(groups: Group[], period: number, scale: number, available: number): Band[] {
+  const values = groups.map((g) => value(g, period));
+  const total = values.reduce((a, b) => a + b, 0) || 1;
+  const slots = values.map((v) => Math.max(v * scale, MIN_SLOT));
+  const used = slots.reduce((a, b) => a + b, 0) + GAP * (groups.length - 1);
+  let slotY = TOP + (available - used) / 2;
+  let innerY = TOP + (available - total * scale) / 2;
+  return groups.map((group, i) => {
+    const height = values[i] * scale;
+    const band = { group, share: values[i] / total, height, innerY, outerY: slotY + (slots[i] - height) / 2, slotY, slot: slots[i] };
+    innerY += height;
+    slotY += slots[i] + GAP;
     return band;
   });
+}
 
-  const mid = (NODE + right) / 2;
+/**
+ * Issuers on the left, holders on the right, the instrument in the middle. Both sides share one
+ * scale, so a difference between what is owed and what is held shows as a difference in height.
+ */
+export function FlowDiagram({ name, issuers, holders, period, selected, onSelect }: Props) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const wide = width >= 760;
+  const available = HEIGHT - TOP;
+  const leftLabels = issuers ? (wide ? 250 : 0) : 0;
+  const rightLabels = wide ? 220 : Math.min(235, width * 0.55);
+
+  const sides = [holders, ...(issuers ? [issuers] : [])];
+  const scale = Math.min(...sides.map((groups) => fit(groups.map((g) => value(g, period)), available)));
+  const holderBands = layout(holders, period, scale, available);
+  const issuerBands = issuers ? layout(issuers, period, scale, available) : [];
+
+  const leftX = leftLabels;
+  const rightX = Math.max(leftX + 120, width - rightLabels - NODE);
+  const centerX = issuers ? (leftX + NODE + rightX) / 2 - NODE / 2 : 0;
+  const total = (bands: Band[]) => bands.reduce((sum, b) => sum + b.height, 0);
+  const centerHeight = Math.max(total(holderBands), total(issuerBands), 1);
+
+  const ribbon = (x0: number, y0: number, x1: number, y1: number, h: number) => {
+    const mid = (x0 + x1) / 2;
+    return `M${x0},${y0} C${mid},${y0} ${mid},${y1} ${x1},${y1} L${x1},${y1 + h} C${mid},${y1 + h} ${mid},${y0 + h} ${x0},${y0 + h} Z`;
+  };
+
+  const side = (name: SideName, bands: Band[]) =>
+    bands.map(({ group, share, height, innerY, outerY, slotY, slot }) => {
+      const on = selected.side === name && selected.id === group.id;
+      const left = name === "issuers";
+      const nodeX = left ? leftX : rightX;
+      const path = left
+        ? ribbon(leftX + NODE, outerY, centerX, innerY, height)
+        : ribbon(centerX + NODE, innerY, rightX, outerY, height);
+      const showLabel = left ? leftLabels > 0 : true;
+      return (
+        <g
+          key={`${name}-${group.id}`}
+          className="flow-band"
+          tabIndex={0}
+          role="button"
+          aria-pressed={on}
+          aria-label={`${left ? "Issuer" : "Holder"}: ${group.name}, ${pct(share)}`}
+          onClick={() => onSelect(name, group.id)}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect(name, group.id)}
+        >
+          <rect
+            x={left ? 0 : centerX + NODE}
+            y={slotY}
+            width={left ? centerX : width - centerX - NODE}
+            height={slot}
+            fill="transparent"
+          />
+          {height > 0.25 && <path d={path} fill={color(group.id)} opacity={on ? 0.6 : 0.28} />}
+          <rect x={nodeX} y={outerY} width={NODE} height={Math.max(height, 1)} rx={2} fill={color(group.id)} />
+          {showLabel && (
+            <text
+              x={left ? leftX - 8 : rightX + NODE + 8}
+              y={slotY + slot / 2}
+              textAnchor={left ? "end" : "start"}
+              dominantBaseline="central"
+              className={on ? "flow-label on" : "flow-label"}
+            >
+              {group.name}
+              <tspan className="flow-share" dx={6}>
+                {pct(share)}
+              </tspan>
+            </text>
+          )}
+        </g>
+      );
+    });
 
   return (
     <div ref={ref} className="flow">
       {width > 0 && (
-        <svg width={width} height={HEIGHT} role="img" aria-label="Share of Treasury securities held by each holder group">
-          <rect x={0} y={(HEIGHT - scale) / 2} width={NODE} height={scale} rx={2} fill="var(--text-secondary)" />
-          {bands.map(({ group, share, height, sourceY, targetY, slotY, slot }) => {
-            const dim = selected !== group.id;
-            const ribbon =
-              `M${NODE},${sourceY} C${mid},${sourceY} ${mid},${targetY} ${right},${targetY} ` +
-              `L${right},${targetY + height} C${mid},${targetY + height} ${mid},${sourceY + height} ${NODE},${sourceY + height} Z`;
-            return (
-              <g
-                key={group.id}
-                className="flow-band"
-                tabIndex={0}
-                role="button"
-                aria-pressed={!dim}
-                aria-label={`${group.name}, ${pct(share)}`}
-                onClick={() => onSelect(group.id)}
-                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect(group.id)}
-              >
-                <rect x={NODE} y={slotY} width={width - NODE} height={slot} fill="transparent" />
-                {height > 0.25 && <path d={ribbon} fill={color(group.id)} opacity={dim ? 0.28 : 0.6} />}
-                <rect
-                  x={right}
-                  y={targetY}
-                  width={NODE}
-                  height={Math.max(height, 1)}
-                  rx={2}
-                  fill={color(group.id)}
-                />
-                <text x={right + NODE + 8} y={slotY + slot / 2} dominantBaseline="central" className={dim ? "flow-label" : "flow-label on"}>
-                  {group.name}
-                  <tspan className="flow-share" dx={6}>
-                    {pct(share)}
-                  </tspan>
-                </text>
-              </g>
-            );
-          })}
+        <svg width={width} height={HEIGHT} role="img" aria-label={`${name}: issuers and holders by sector group`}>
+          {issuers && (
+            <text x={wide ? leftX + NODE : 0} y={10} textAnchor={wide ? "end" : "start"} className="flow-side">
+              Issuers
+            </text>
+          )}
+          <text x={rightX} y={10} className="flow-side">
+            Holders
+          </text>
+          {issuers && wide && (
+            <text x={centerX + NODE / 2} y={10} textAnchor="middle" className="flow-center">
+              {name}
+            </text>
+          )}
+          <rect x={centerX} y={TOP + (available - centerHeight) / 2} width={NODE} height={centerHeight} rx={2} fill="var(--text-secondary)" />
+          {side("issuers", issuerBands)}
+          {side("holders", holderBands)}
         </svg>
       )}
     </div>

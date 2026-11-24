@@ -9,7 +9,7 @@ import duckdb
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
-from fwm import sectors, treasury
+from fwm import instruments, sectors
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = Path(os.environ.get("FWM_DB", ROOT / "data" / "fwm.duckdb"))
@@ -24,13 +24,25 @@ def connect() -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(DB_PATH), read_only=True)
 
 
-@app.get("/api/treasury/holders")
-def treasury_holders() -> dict:
+@app.get("/api/instruments")
+def instrument_list() -> list[dict]:
     con = connect()
     try:
-        return treasury.holders(con)
+        return instruments.list_instruments(con)
     finally:
         con.close()
+
+
+@app.get("/api/instruments/{instrument_id}")
+def instrument_view(instrument_id: str) -> dict:
+    con = connect()
+    try:
+        view = instruments.view(con, instrument_id)
+    finally:
+        con.close()
+    if view is None:
+        raise HTTPException(404, f"No holder data for instrument {instrument_id!r}")
+    return view
 
 
 @app.get("/api/sectors")

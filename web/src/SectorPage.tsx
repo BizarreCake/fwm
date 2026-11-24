@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { MeasureCharts } from "./MeasureCharts";
 import { StackedChart, type StackSeries } from "./StackedChart";
 import { TimeBar, useTimeControls } from "./time";
-import { ModeToggle } from "./TreasuryPage";
+import { ModeToggle } from "./ModeToggle";
 import type { Mode, SectorSummary, SectorView, SheetNode } from "./types";
 import { useFetch } from "./useFetch";
 import { pct, periodLabel, usd } from "./util";
@@ -25,7 +25,7 @@ export function SectorPage({ sectorId }: { sectorId: string }) {
   if (error) {
     return (
       <main className="page">
-        <a href="#/">← Who holds US Treasuries</a>
+        <a href="#/">← Treasury securities</a>
         <p>Could not load this sector: {error}</p>
       </main>
     );
@@ -141,7 +141,7 @@ function Sector({ view }: { view: SectorView }) {
       <header className="header">
         <div>
           <a className="back" href="#/">
-            ← Who holds US Treasuries
+            ← Treasury securities
           </a>
           <h1>{view.name}</h1>
           <p className="muted">
@@ -230,7 +230,7 @@ function Sector({ view }: { view: SectorView }) {
             <span className="swatch" style={{ background: fill }} />
             {node.name}
           </h2>
-          {node.instrument === "F3_2" && <a href="#/">Who else holds Treasuries →</a>}
+          {node.instrument && <a href={`#/instrument/${node.instrument}`}>Who holds and owes this →</a>}
         </div>
         <MeasureCharts name={node.name} measures={node} fill={fill} time={time} />
         <div className="scroll-x">

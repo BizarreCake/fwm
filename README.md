@@ -4,8 +4,10 @@ An explorable model of the financial system. Design notes: [docs/design1.md](doc
 
 Built so far, from the Federal Reserve's Z.1 financial accounts:
 
-- **Who holds US Treasury securities**, by sector and over time.
-- **Sector balance sheets**: each holder's full financial assets and liabilities, reachable from the Treasury view.
+- **Instrument pages**: who holds and who owes each instrument (Treasuries, repo, mortgages, deposits, equities, ...), by sector group and over time.
+- **Sector pages**: each sector's full financial balance sheet.
+
+The two link to each other, so you can walk from an instrument to a holder, to that holder's other assets and liabilities, and on to the next instrument.
 
 ## Run
 
@@ -23,7 +25,7 @@ For UI development, run `uv run fwm serve --reload` and `npm run dev` in `web/` 
 - `src/fwm/z1.py`: ingests every Z.1 table into `z1_series` and `z1_observations`, and records the release vintage.
 - `src/fwm/structure.py`: infers which lines of each Z.1 table sum to which totals, verified against every quarter.
 - `src/fwm/sectors.py`: sector balance sheets as verified trees.
-- `src/fwm/treasury.py`: the Treasury holders view, including the mapping from Z.1 sectors to display groups.
+- `src/fwm/instruments.py`: holders and issuers of each instrument, and the shared sector groups used on every page.
 - `src/fwm/api.py`: HTTP API over the views.
 - `web/`: React UI.
 - `data/`: downloaded and derived data (not committed).

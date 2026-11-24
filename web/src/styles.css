@@ -17,7 +17,8 @@
   --c-funds: #e87ba4;
   --c-pensions_insurers: #008300;
   --c-households: #6250d6;
-  --c-other: #898781;
+  --c-other_financial: #e34948;
+  --c-gov_business: #898781;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -40,7 +41,8 @@
     --c-funds: #d55181;
     --c-pensions_insurers: #0ca30c;
     --c-households: #9085e9;
-    --c-other: #898781;
+    --c-other_financial: #e66767;
+    --c-gov_business: #898781;
   }
 }
 
@@ -620,4 +622,31 @@ figcaption {
 
 .link:hover {
   background: transparent;
+}
+
+.tables {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+
+.tables.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 900px) {
+  .tables {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.flow-side {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.flow-center {
+  fill: var(--text-secondary);
+  font-size: 12px;
 }

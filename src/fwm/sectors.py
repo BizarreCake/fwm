@@ -11,10 +11,20 @@ from __future__ import annotations
 import duckdb
 
 from fwm.structure import START
-from fwm.treasury import _other_change
 
 ASSET_TOTAL = "4090"
 LIABILITY_TOTALS = ("4194", "4190")  # with equity preferred, else liabilities only
+
+
+def _other_change(level: list, tx: list) -> list:
+    """Change in level not explained by transactions (valuation + other volume changes)."""
+    out: list = [None]
+    for i in range(1, len(level)):
+        if level[i] is None or level[i - 1] is None or tx[i] is None:
+            out.append(None)
+        else:
+            out.append(level[i] - level[i - 1] - tx[i])
+    return out
 
 
 def _table(sector_id: str) -> str:
@@ -71,25 +81,14 @@ def list_sectors(con: duckdb.DuckDBPyConnection) -> list[dict]:
     return out
 
 
-def sector_for_series(con: duckdb.DuckDBPyConnection, series_id: str) -> str | None:
-    """The sector table that best represents the holder of a series: same sector code, else smallest table."""
-    candidates = con.execute(
-        """
-        SELECT table_id, count(*) OVER (PARTITION BY table_id) FROM z1_series
-        WHERE table_id IN (SELECT table_id FROM z1_series WHERE series_id = ? AND table_id LIKE 'S%\\_s' ESCAPE '\\')
-        QUALIFY row_number() OVER (PARTITION BY table_id ORDER BY series_id) = 1
-        """,
-        [series_id],
-    ).fetchall()
-    best = None
-    for table_id, size in candidates:
-        assets, _ = _roots(con, table_id)
-        if not assets:
-            continue
-        rank = (assets[2:4] != series_id[2:4], size)
-        if best is None or rank < best[0]:
-            best = (rank, table_id)
-    return best[1].removesuffix("_s") if best else None
+def sector_tables_by_code(con: duckdb.DuckDBPyConnection) -> dict[str, str]:
+    """Two-digit Z.1 sector code -> id of the sector page that best represents it (the largest, where sub-sector tables share a code)."""
+    best: dict[str, dict] = {}
+    for sector in list_sectors(con):
+        current = best.get(sector["sector_code"])
+        if current is None or (sector["total_assets"] or 0) > (current["total_assets"] or 0):
+            best[sector["sector_code"]] = sector
+    return {code: sector["id"] for code, sector in best.items()}
 
 
 def _label(description: str, owner: str) -> str:
@@ -139,12 +138,15 @@ def balance_sheet(con: duckdb.DuckDBPyConnection, sector_id: str) -> dict | None
     ).fetchall():
         series.setdefault(series_id, [None] * n)[index[period]] = value
 
+    from fwm.instruments import list_instruments
+
+    resolved = {f"{instrument['id']}_s" for instrument in list_instruments(con)}
     instrument_tables = dict(con.execute(
         """
         SELECT series_id, arg_max(table_id, length(table_id)) FROM z1_series
-        WHERE series_id IN (SELECT unnest(?)) AND table_id LIKE 'F%\\_s' ESCAPE '\\' GROUP BY 1
+        WHERE series_id IN (SELECT unnest(?)) AND table_id IN (SELECT unnest(?)) GROUP BY 1
         """,
-        [ids],
+        [ids, sorted(resolved)],
     ).fetchall())
 
     children: dict[str, list] = {}

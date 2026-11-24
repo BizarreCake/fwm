@@ -12,7 +12,9 @@ Three patterns occur in the tables:
 * a total followed by its components (most tables);
 * components followed by their total (fund tables);
 * "of which" memo lines sitting among the components, which must be skipped.
-  A skipped line is attached to the preceding component as a memo.
+  A skipped line is attached to the preceding component as a memo;
+* a total with components on both sides of it (issuers before, holders after).
+  The following group is stored as the total's alternative decomposition.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import duckdb
 START = "1952-03-31"
 WINDOW = 40      # how many following items a parent may span
 MAX_MEMOS = 2    # how many memo lines may be skipped inside one parent
+MIN_OVERLAP = 20 # quarters of complete data needed to accept an identity on partial history
 
 
 @dataclass
@@ -31,6 +34,9 @@ class Node:
     index: int
     children: list["Node"] = field(default_factory=list)
     memos: list["Node"] = field(default_factory=list)
+    # A second decomposition of the same total. Instrument tables often list the issuers,
+    # then the total, then the holders: both groups sum to the one total in between.
+    alt: list["Node"] = field(default_factory=list)
 
 
 def _matches(target: list, total: list, n_terms: int) -> bool:
@@ -47,6 +53,30 @@ def _matches(target: list, total: list, n_terms: int) -> bool:
 
 def _add(a: list, b: list, sign: int = 1) -> list:
     return [x + sign * (y or 0) for x, y in zip(a, b)]
+
+
+def _gaps(a: list, b: list, sign: int = 1) -> list:
+    """Running count, per quarter, of terms that have no data."""
+    return [x + sign * (y is None) for x, y in zip(a, b)]
+
+
+def _matches_where_complete(target: list, total: list, gaps: list, n_terms: int) -> bool:
+    """The identity holds in every quarter where all terms have data, and there are enough such quarters.
+
+    Some breakdowns start later than their total (e.g. federal funds vs. repo), so the
+    identity cannot be tested, and does not hold with gaps read as zero, before then.
+    """
+    tolerance = max(2, n_terms)
+    overlap = 0
+    seen = False
+    for t, s, g in zip(target, total, gaps):
+        if t is None or g:
+            continue
+        if abs(t - s) > tolerance:
+            return False
+        overlap += 1
+        seen = seen or t != 0
+    return seen and overlap >= MIN_OVERLAP
 
 
 def infer(values: list[list]) -> list[Node]:
@@ -75,15 +105,26 @@ def infer(values: list[list]) -> list[Node]:
                 node, k = item(k)
                 candidates.append((node, k))
             prefix = [0.0] * n_periods
+            prefix_gaps = [0] * n_periods
             found = None
             for j, (node, after) in enumerate(candidates):
                 prefix = _add(prefix, values[node.index])
+                prefix_gaps = _gaps(prefix_gaps, values[node.index])
                 for skipped in _memo_sets(j):
                     total = prefix
                     for s in skipped:
                         total = _add(total, values[candidates[s][0].index], -1)
                     terms = j + 1 - len(skipped)
+                    latest = n_periods - 1
+                    if target[latest] is None or abs(target[latest] - total[latest]) > max(2, terms):
+                        continue
                     if probe_ok(target, total, terms) and _matches(target, total, terms):
+                        found = (j, skipped, after)
+                        break
+                    gaps = prefix_gaps
+                    for s in skipped:
+                        gaps = _gaps(gaps, values[candidates[s][0].index], -1)
+                    if _matches_where_complete(target, total, gaps, terms):
                         found = (j, skipped, after)
                         break
                 if found:
@@ -128,10 +169,11 @@ def infer(values: list[list]) -> list[Node]:
                     parent.children[-1].memos.append(child)
                 else:
                     parent.children.append(child)
+            parent.alt = node.children
             del roots[start:]
             roots.append(parent)
             loose_from = len(roots)
-            i += 1
+            i = after
             continue
         roots.append(node)
         i = after
@@ -191,6 +233,8 @@ def build(con: duckdb.DuckDBPyConnection) -> dict:
                 emit(child, ids[node.index], "component")
             for memo in node.memos:
                 emit(memo, ids[node.index], "memo")
+            for other in node.alt:
+                emit(other, ids[node.index], "alt")
 
         for root in infer(values):
             emit(root, None, "root")

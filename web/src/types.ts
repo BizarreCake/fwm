@@ -1,52 +1,53 @@
 export interface Measures {
-  level: number[];
-  transactions: number[];
+  level: (number | null)[];
+  transactions: (number | null)[];
   other_change: (number | null)[];
 }
 
-export interface Sector extends Measures {
-  sector_id: string | null;
+/** One sector's position in an instrument, as holder (asset) or issuer (liability). */
+export interface Position extends Measures {
   code: string;
   name: string;
+  detail: string;
+  group: string;
+  sector_id: string | null;
+  series: string;
   basis: "market" | "book";
-  level_series: string;
-  transactions_series: string;
 }
 
 export interface Group extends Measures {
   id: string;
   name: string;
-  note: string;
-  sectors: Sector[];
+  sectors: Position[];
 }
 
-export interface Total extends Measures {
+export interface SideView extends Measures {
   series: string;
+  excludes_discrepancy: boolean;
+  groups: Group[];
 }
 
-export interface HoldersView {
-  instrument: string;
+export interface InstrumentView {
+  id: string;
+  name: string;
   unit: string;
   periods: string[];
-  period_ends: string[];
-  groups: Group[];
-  totals: {
-    liability_face: Total;
-    bills_face: Total;
-    holders_market: Total;
-    valuation_gap: Total;
-    nonmarketable_face: { series: string; level: (number | null)[] };
-  };
-  source: {
-    name: string;
-    url: string;
-    table: string;
-    published_at: string | null;
-    ingested_at: string;
-    latest_period: string;
-  };
-  notes: { valuation: string; other_change: string; coverage: string };
+  group_order: string[];
+  holders: SideView;
+  issuers: SideView | null;
+  discrepancy: { series: string; level: (number | null)[] } | null;
+  source: { name: string; url: string; table: string; published_at: string | null; latest_period: string };
+  notes: { sides: string; other_change: string; coverage: string; issuers: string | null };
 }
+
+export interface InstrumentSummary {
+  id: string;
+  name: string;
+  holders_total: number | null;
+  has_issuers: boolean;
+}
+
+export type SideName = "holders" | "issuers";
 
 export type Mode = "usd" | "share";
 
